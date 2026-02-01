@@ -1,24 +1,27 @@
 import { motion } from "motion/react";
 import { ReactNode, useRef, useState } from "react";
 
-interface MagneticButtonProps {
+interface MagneticButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
   className?: string;
   onClick?: () => void;
-  variant?: "primary" | "secondary" | "ghost";
+  variant?: "primary" | "secondary" | "ghost" | "destructive";
+  disabled?: boolean;
 }
 
 export function MagneticButton({ 
   children, 
   className = "", 
   onClick,
-  variant = "primary" 
+  variant = "primary",
+  disabled = false,
+  ...props
 }: MagneticButtonProps) {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!buttonRef.current) return;
+    if (!buttonRef.current || disabled) return;
     const rect = buttonRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left - rect.width / 2;
     const y = e.clientY - rect.top - rect.height / 2;
@@ -33,19 +36,22 @@ export function MagneticButton({
     primary: "bg-gradient-to-r from-[#0066ff] to-[#06b6d4] text-white hover:shadow-xl hover:shadow-[#0066ff]/30",
     secondary: "bg-gradient-to-r from-[#06b6d4] to-[#14b8a6] text-white hover:shadow-xl hover:shadow-[#06b6d4]/30",
     ghost: "bg-white/10 text-foreground hover:bg-white/20 backdrop-blur-sm border border-white/20",
+    destructive: "bg-gradient-to-r from-[#ff4444] to-[#ff6b6b] text-white hover:shadow-xl hover:shadow-[#ff4444]/30",
   };
 
   return (
     <motion.button
       ref={buttonRef}
       className={`relative px-8 py-4 rounded-[14px] font-semibold transition-all duration-300 
-        overflow-hidden ${variantStyles[variant]} ${className}`}
+        overflow-hidden ${variantStyles[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
       animate={{ x: position.x, y: position.y }}
       transition={{ type: "spring", stiffness: 150, damping: 15 }}
-      whileTap={{ scale: 0.95 }}
+      whileTap={{ scale: disabled ? 1 : 0.95 }}
+      disabled={disabled}
+      {...props}
     >
       <span className="relative z-10">{children}</span>
       <motion.div

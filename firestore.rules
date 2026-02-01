@@ -1,0 +1,140 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    
+    function isAdmin() { 
+      return isSignedIn() && get(/databases/$(database)/documents/Users/$(request.auth.uid)).data.role == 'admin'; 
+    }
+    
+    function isOwner(userId) { 
+      return isSignedIn() && request.auth.uid == userId; 
+    }
+    
+    function validString(v) { 
+      return v is string && v.size() > 0; 
+    }
+    
+    function validTimestampOrString(v) { 
+      return v is timestamp || (v is string && v.size() > 0); 
+    }
+    
+    function validTrustScore(v) { 
+      return v is int && v >= 0 && v <= 100; 
+    }
+    
+    function validateUserData(data) {
+      return data.keys().hasAll(['name', 'email'])
+        && validString(data.name)
+        && validString(data.email)
+        && (!('trust_score' in data) || validTrustScore(data.trust_score))
+        && (!('role' in data) || data.role in ['user', 'admin']);
+    }
+    
+    function validateItemData(data) {
+      return data.keys().hasAll(['name', 'category', 'description', 'location'])
+        && validString(data.name)
+        && validString(data.category)
+        && validString(data.description)
+        && validString(data.location)
+        && (!('status' in data) || data.status in ['lost', 'found', 'recovered'])
+        && (!('verification_answers' in data) || data.verification_answers is list);
+    }
+
+    // USERS collection
+    match /Users/{userId} {
+      allow create: if isSignedIn() 
+        && isOwner(userId)
+        && validateUserData(request.resource.data);
+      
+      allow read: if isAdmin() || isOwner(userId);
+      
+      allow update: if isSignedIn() && (isOwner(userId) || isAdmin())
+        && (!('role' in request.resource.data) || isAdmin())
+        && (!('password' in request.resource.data))
+        && validateUserData(request.resource.data);
+      
+      allow delete: if false;
+    }
+
+    // LOST ITEMS collection
+    match /LostItems/{itemId} {
+      allow create: if isSignedIn() 
+        && validateItemData(request.resource.data)
+        && request.resource.data.user_id == request.auth.uid;
+      
+      allow read: if isSignedIn() || isAdmin();
+      
+      allow update: if isAdmin() || (isSignedIn() && resource.data.user_id == request.auth.uid);
+      
+      allow delete: if false;
+    }
+
+    // FOUND ITEMS collection
+    match /FoundItems/{itemId} {
+      allow create: if isSignedIn() 
+        && validateItemData(request.resource.data)
+        && request.resource.data.finder_id == request.auth.uid;
+      
+      allow read: if isSignedIn() || isAdmin();
+      
+      allow update: if isAdmin() || (isSignedIn() && resource.data.finder_id == request.auth.uid);
+      
+      allow delete: if false;
+    }
+
+    // MATCHES collection - backend only
+    match /Matches/{matchId} {
+      allow create: if false;
+      allow read: if isSignedIn() || isAdmin();
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // HANDOVERS collection - backend only creation
+    match /Handovers/{handoverId} {
+      allow create: if false;
+      
+      allow read: if isAdmin() || (isSignedIn() && (resource.data.owner_id == request.auth.uid || resource.data.finder_id == request.auth.uid));
+      
+      allow update: if isAdmin() || (isSignedIn() && (resource.data.owner_id == request.auth.uid || resource.data.finder_id == request.auth.uid));
+      
+      allow delete: if false;
+    }
+
+    // RECEIPTS collection - backend only, immutable
+    match /Receipts/{receiptId} {
+      allow create: if false;
+      
+      allow read: if isAdmin() || (isSignedIn() && (resource.data.owner_id == request.auth.uid || resource.data.finder_id == request.auth.uid));
+      
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // HANDOVER LOGS - backend only
+    match /HandoverLogs/{logId} {
+      allow create: if false;
+      allow read: if isAdmin() || isSignedIn();
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // ADMIN LOGS - admin only
+    match /AdminLogs/{logId} {
+      allow create: if false;
+      allow read: if isAdmin();
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // Default deny all other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

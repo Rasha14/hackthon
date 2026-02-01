@@ -1,6 +1,8 @@
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useAuth } from "../../contexts/AuthContext";
 import { GlassCard } from "./glass-card";
+import { MagneticButton } from "./magnetic-button";
 import { 
   LayoutDashboard, 
   Package, 
@@ -28,13 +30,30 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { user, isAuthenticated, isAdmin } = useAuth();
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [claimsList, setClaimsList] = useState<any[]>([]);
+  const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
         setIsLoading(true);
-        const data = await adminAPI.getDashboardData();
+        if (!isAuthenticated || !isAdmin) {
+          setError('Admin access required');
+          setIsLoading(false);
+          return;
+        }
+
+        const [data, users, claims] = await Promise.all([
+          adminAPI.getDashboardData(),
+          adminAPI.getUsers(),
+          adminAPI.getClaims(),
+        ]);
+
         setDashboardData(data);
+        setUsersList(users.users || users || []);
+        setClaimsList(claims.claims || claims || []);
         setError(null);
       } catch (err: any) {
         setError(err.message || 'Failed to load dashboard data');
@@ -46,6 +65,72 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
 
     fetchDashboardData();
   }, []);
+
+  const refreshAdminData = async () => {
+    try {
+      setActionLoading(true);
+      const [data, users, claims] = await Promise.all([
+        adminAPI.getDashboardData(),
+        adminAPI.getUsers(),
+        adminAPI.getClaims(),
+      ]);
+      setDashboardData(data);
+      setUsersList(users.users || users || []);
+      setClaimsList(claims.claims || claims || []);
+    } catch (err) {
+      console.error('Refresh admin data failed:', err);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleApproveClaim = async (claimId: string) => {
+    try {
+      setActionLoading(true);
+      await adminAPI.approveClaim(claimId);
+      await refreshAdminData();
+    } catch (err) {
+      console.error('Approve claim error:', err);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRejectClaim = async (claimId: string) => {
+    try {
+      setActionLoading(true);
+      await adminAPI.rejectClaim(claimId, 'Rejected by admin');
+      await refreshAdminData();
+    } catch (err) {
+      console.error('Reject claim error:', err);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDisableUser = async (userId: string) => {
+    try {
+      setActionLoading(true);
+      await adminAPI.disableUser(userId);
+      await refreshAdminData();
+    } catch (err) {
+      console.error('Disable user error:', err);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleEnableUser = async (userId: string) => {
+    try {
+      setActionLoading(true);
+      await adminAPI.enableUser(userId);
+      await refreshAdminData();
+    } catch (err) {
+      console.error('Enable user error:', err);
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const statsData = dashboardData ? [
     { label: "Total Reports", value: (dashboardData.totals.lost_items + dashboardData.totals.found_items).toLocaleString(), change: "+12.5%", icon: Package, color: "#0066ff" },
@@ -322,7 +407,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
                   <h3 className="text-xl font-semibold">Fraud Alerts</h3>
                 </div>
                 <div className="space-y-4">
-                  {fraudAlerts.map((alert) => (
+                  {fraudAlerts.map((alert: any) => (
                     <motion.div
                       key={alert.id}
                       className="p-4 rounded-[12px] bg-white/30 dark:bg-white/5 border border-white/10
@@ -361,12 +446,12 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                   <XAxis dataKey="name" stroke="#94a3b8" />
                   <YAxis stroke="#94a3b8" />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'rgba(15, 23, 42, 0.9)', 
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'rgba(15, 23, 42, 0.9)',
                       border: '1px solid rgba(255,255,255,0.1)',
                       borderRadius: '12px'
-                    }} 
+                    }}
                   />
                   <Bar dataKey="value" fill="url(#colorGradient)" radius={[8, 8, 0, 0]} />
                   <defs>
@@ -379,6 +464,67 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
               </ResponsiveContainer>
             </GlassCard>
           </motion.div>
+            </>
+          )}
+
+          {/* Admin Tabs: Users and Reports Management */}
+          {!isLoading && !error && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+              {/* Users Management */}
+              {activeTab === 'users' && (
+                <GlassCard className="p-6">
+                  <h3 className="text-xl font-semibold mb-4">User Management</h3>
+                  <div className="space-y-3">
+                    {usersList.map((u: any) => (
+                      <div key={u.uid} className="flex items-center justify-between">
+                        <div>
+                          <div className="font-semibold">{u.displayName || u.email}</div>
+                          <div className="text-xs text-muted-foreground">{u.email}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {u.disabled ? (
+                            <MagneticButton variant="secondary" onClick={() => handleEnableUser(u.uid)} disabled={actionLoading}>
+                              Enable
+                            </MagneticButton>
+                          ) : (
+                            <MagneticButton variant="destructive" onClick={() => handleDisableUser(u.uid)} disabled={actionLoading}>
+                              Disable
+                            </MagneticButton>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCard>
+              )}
+
+              {/* Reports / Claims Management */}
+              {activeTab === 'reports' && (
+                <GlassCard className="p-6">
+                  <h3 className="text-xl font-semibold mb-4">Claims & Reports</h3>
+                  <div className="space-y-3">
+                    {claimsList.map((c: any) => (
+                      <div key={c.id} className="flex items-start justify-between p-3 rounded-[10px] bg-white/5 border border-white/10">
+                        <div className="flex-1">
+                          <div className="font-semibold">Claim: {c.id}</div>
+                          <div className="text-xs text-muted-foreground">Item: {c.itemId} — Status: {c.status}</div>
+                          <div className="text-xs text-muted-foreground mt-1">Submitted by: {c.userEmail || c.userId}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <MagneticButton variant="primary" onClick={() => handleApproveClaim(c.id)} disabled={actionLoading}>
+                            Approve
+                          </MagneticButton>
+                          <MagneticButton variant="secondary" onClick={() => handleRejectClaim(c.id)} disabled={actionLoading}>
+                            Reject
+                          </MagneticButton>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCard>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

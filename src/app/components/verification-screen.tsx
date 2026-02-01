@@ -35,23 +35,41 @@ export function VerificationScreen({ onNavigate }: VerificationScreenProps) {
       const fetchQuestions = async () => {
         try {
           setIsLoading(true);
-          // Use the backend service to generate questions based on item category
-          const response = await itemsAPI.generateVerificationQuestions(matchData.found_item.category);
-          // Convert backend format to component format
-          const formattedQuestions = (response.questions || []).map((q: any) => ({
-            question: q.question,
-            options: q.type === 'boolean' ? ['Yes', 'No'] :
-                     q.type === 'number' ? ['1', '2', '3', '4', '5+'] :
-                     ['Option A', 'Option B', 'Option C', 'Option D'] // Default options for text type
-          }));
-          setQuestions(formattedQuestions);
+          // Use default verification questions based on item category
+          // In a real app, these would come from the backend
+          const categoryQuestions: Record<string, any[]> = {
+            'Electronics': [
+              { question: "What is the primary color of the device?", options: ['Black', 'Silver', 'Gold', 'White'] },
+              { question: "What is the brand?", options: ['Apple', 'Samsung', 'Sony', 'Other'] },
+              { question: "Are there any visible scratches or damage?", options: ['Yes', 'No'] }
+            ],
+            'Keys': [
+              { question: "What color is the keychain?", options: ['Silver', 'Gold', 'Plastic', 'Other'] },
+              { question: "How many keys are on the ring?", options: ['1-2', '3-4', '5-6', '7+'] },
+              { question: "Is there a keychain attached?", options: ['Yes', 'No'] }
+            ],
+            'Wallet': [
+              { question: "What color is the wallet?", options: ['Black', 'Brown', 'Blue', 'Other'] },
+              { question: "What material is it?", options: ['Leather', 'Canvas', 'Synthetic', 'Other'] },
+              { question: "Any distinctive marks or logos?", options: ['Yes', 'No'] }
+            ],
+            'default': [
+              { question: "What is the primary color?", options: ['Red', 'Blue', 'Black', 'Other'] },
+              { question: "Are there any labels or branding?", options: ['Yes', 'No'] },
+              { question: "Is there any damage visible?", options: ['Yes', 'No'] }
+            ]
+          };
+
+          const category = matchData?.found_item?.category || 'default';
+          const defaultQuestions = categoryQuestions[category] || categoryQuestions['default'];
+          setQuestions(defaultQuestions);
         } catch (err) {
           console.error('Failed to fetch verification questions:', err);
-          // Fallback to default questions if API fails
+          // Fallback to default questions if anything fails
           setQuestions([
-            { question: "What is the primary color of the item?", type: "text" },
-            { question: "Are there any distinctive marks or labels?", type: "text" },
-            { question: "What is the approximate size of the item?", type: "text" }
+            { question: "What is the primary color of the item?", options: ['Option A', 'Option B', 'Option C', 'Option D'] },
+            { question: "Are there any distinctive marks or labels?", options: ['Yes', 'No'] },
+            { question: "What is the approximate size of the item?", options: ['Small', 'Medium', 'Large', 'Extra Large'] }
           ]);
         } finally {
           setIsLoading(false);
@@ -60,6 +78,26 @@ export function VerificationScreen({ onNavigate }: VerificationScreenProps) {
       fetchQuestions();
     }
   }, [matchData]);
+
+  useEffect(() => {
+    // Load match and claim data from localStorage
+    try {
+      const storedMatch = localStorage.getItem('selectedMatch');
+      const storedClaim = localStorage.getItem('claimData');
+      
+      if (storedMatch) {
+        const match = JSON.parse(storedMatch);
+        setSelectedMatch(match);
+        setMatchData(match);
+      } else {
+        setError('No match data found. Please select a match first.');
+        setTimeout(() => onNavigate('match-results'), 2000);
+      }
+    } catch (err) {
+      setError('Failed to load match data');
+      console.error('Load match error:', err);
+    }
+  }, []);
 
   const handleAnswer = async (answer: string) => {
     const newAnswers = [...answers, answer];
@@ -71,13 +109,21 @@ export function VerificationScreen({ onNavigate }: VerificationScreenProps) {
       // All questions answered, submit verification
       try {
         setIsLoading(true);
-        const result = await handoversAPI.verifyOwner({
-          matchId: selectedMatch.id,
-          answers: newAnswers
-        });
+        setError(null);
+
+        const result = await handoversAPI.verifyOwner(
+          selectedMatch?.claimId || '',
+          newAnswers
+        );
 
         setVerificationResult(result);
         setShowSuccess(true);
+
+        // Store verification result for handover screen
+        localStorage.setItem('verificationResult', JSON.stringify(result));
+
+        // Auto-navigate to handover after 2 seconds
+        setTimeout(() => onNavigate('handover'), 2000);
       } catch (err: any) {
         setError(err.message || 'Verification failed');
         // Still set the result if available (for trust score display)
@@ -276,7 +322,7 @@ export function VerificationScreen({ onNavigate }: VerificationScreenProps) {
             </h2>
 
             <div className="grid gap-4">
-              {questions[currentQuestion].options.map((option, index) => (
+              {questions[currentQuestion].options.map((option: string, index: number) => (
                 <motion.button
                   key={index}
                   onClick={() => handleAnswer(option)}

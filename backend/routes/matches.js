@@ -1,151 +1,311 @@
 const express = require('express');
-const admin = require('firebase-admin');
 const { verifyToken } = require('../middleware/auth');
-const { calculateMatchScore } = require('../services/matchingService');
+const { calculateMatchScore, getConfidenceLevel, generateMatchExplanation, findMatches } = require('../services/matchingService');
 
 const router = express.Router();
-const db = admin.firestore();
 
-// Get AI suggested matches for a lost item
-router.get('/match-items', verifyToken, async (req, res) => {
+/**
+ * GET /api/matches/find
+ * Find all matches for items in the system
+ * Optionally filter by userId
+ */
+router.get('/find', async (req, res) => {
   try {
-    const { lostItemId } = req.query;
+    const { userId } = req.query;
 
-    if (!lostItemId) {
-      return res.status(400).json({ error: 'Lost item ID is required' });
+    // Get all lost items
+    let lostQuery = req.db.collection('LostItems');
+    if (userId) {
+      lostQuery = lostQuery.where('userId', '==', userId);
     }
+    const lostSnapshot = await lostQuery.get();
+    const lostItems = lostSnapshot.docs.map(doc => doc.data());
 
-    // Get the lost item
-    const lostItemDoc = await db.collection('LostItems').doc(lostItemId).get();
-
-    if (!lostItemDoc.exists) {
-      return res.status(404).json({ error: 'Lost item not found' });
-    }
-
-    const lostItem = { id: lostItemDoc.id, ...lostItemDoc.data() };
-
-    // Check if user owns this lost item
-    if (lostItem.user_id !== req.user.uid) {
-      return res.status(403).json({ error: 'Access denied' });
+    if (lostItems.length === 0) {
+      return res.json({
+        message: 'No lost items found',
+        matches: []
+      });
     }
 
     // Get all found items
-    const foundItemsSnapshot = await db.collection('FoundItems').get();
-    const foundItems = [];
+    const foundSnapshot = await req.db.collection('FoundItems').get();
+    const foundItems = foundSnapshot.docs.map(doc => doc.data());
 
-    foundItemsSnapshot.forEach(doc => {
-      foundItems.push({ id: doc.id, ...doc.data() });
-    });
-
-    // Calculate match scores for each found item
-    const matches = await Promise.all(foundItems.map(async (foundItem) => {
-      const score = await calculateMatchScore(lostItem, foundItem);
-      return {
-        lost_item_id: lostItemId,
-        found_item_id: foundItem.id,
-        match_score: score.total,
-        score_breakdown: score.breakdown,
-        found_item: foundItem
-      };
-    }));
-
-    // Sort by match score (descending) and take top 3
-    matches.sort((a, b) => b.match_score - a.match_score);
-    const topMatches = matches.slice(0, 3);
-
-    // Save matches to database
-    const batch = db.batch();
-    topMatches.forEach(match => {
-      const matchRef = db.collection('Matches').doc();
-      batch.set(matchRef, {
-        ...match,
-        created_at: admin.firestore.FieldValue.serverTimestamp()
+    if (foundItems.length === 0) {
+      return res.json({
+        message: 'No found items available for matching',
+        matches: []
       });
-    });
-    await batch.commit();
+    }
+
+    // Calculate matches for each lost item
+    const allMatches = [];
+    for (const lostItem of lostItems) {
+      const matches = findMatches(lostItem, foundItems);
+      if (matches.length > 0) {
+        allMatches.push({
+          lostItem,
+          matches: matches.map(m => ({
+            foundItem: m.foundItem,
+            score: m.score,
+            confidence: m.confidence,
+            explanation: m.explanation
+          }))
+        });
+      }
+    }
 
     res.json({
-      lost_item: lostItem,
-      matches: topMatches
+      totalMatches: allMatches.length,
+      matches: allMatches
     });
   } catch (error) {
-    console.error('Match items error:', error);
-    res.status(500).json({ error: 'Failed to find matches' });
+    console.error('Find matches error:', error);
+    res.status(500).json({
+      error: 'Matching Failed',
+      message: error.message
+    });
   }
 });
 
-// Get matches for a specific lost item
-router.get('/item-matches/:lostItemId', verifyToken, async (req, res) => {
+/**
+ * GET /api/matches/item/:itemId
+ * Get matches for a specific lost item
+ */
+router.get('/item/:itemId', async (req, res) => {
   try {
-    const { lostItemId } = req.params;
+    const { itemId } = req.params;
 
-    // Check if user owns this lost item
-    const lostItemDoc = await db.collection('LostItems').doc(lostItemId).get();
-    if (!lostItemDoc.exists || lostItemDoc.data().user_id !== req.user.uid) {
-      return res.status(403).json({ error: 'Access denied' });
+    // Get the lost item
+    const lostDoc = await req.db.collection('LostItems').doc(itemId).get();
+    if (!lostDoc.exists) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Lost item not found'
+      });
     }
 
-    // Get matches for this lost item
-    const matchesSnapshot = await db.collection('Matches')
-      .where('lost_item_id', '==', lostItemId)
-      .orderBy('match_score', 'desc')
-      .get();
+    const lostItem = lostDoc.data();
 
-    const matches = [];
-    matchesSnapshot.forEach(doc => {
-      matches.push({ id: doc.id, ...doc.data() });
+    if (lostItem.status !== 'lost') {
+      return res.status(400).json({
+        error: 'Invalid Operation',
+        message: 'Item must be a lost item to get matches'
+      });
+    }
+
+    // Get all found items
+    const foundSnapshot = await req.db.collection('FoundItems').get();
+    const foundItems = foundSnapshot.docs.map(doc => doc.data());
+
+    // Find matches
+    const matches = findMatches(lostItem, foundItems);
+
+    // Store matches in item document
+    await req.db.collection('LostItems').doc(itemId).update({
+      matches: matches.map(m => ({
+        foundItemId: m.foundItem.id,
+        score: m.score,
+        confidence: m.confidence.level,
+        updatedAt: new Date().toISOString()
+      }))
     });
 
-    res.json({ matches });
+    res.json({
+      itemId,
+      itemName: lostItem.itemName,
+      matchCount: matches.length,
+      matches: matches.map(m => ({
+        foundItem: m.foundItem,
+        score: m.score,
+        confidence: m.confidence,
+        explanation: m.explanation
+      }))
+    });
   } catch (error) {
     console.error('Get item matches error:', error);
-    res.status(500).json({ error: 'Failed to fetch matches' });
+    res.status(500).json({
+      error: 'Matching Failed',
+      message: error.message
+    });
   }
 });
 
-// Get all matches for current user
-router.get('/my-matches', verifyToken, async (req, res) => {
+/**
+ * GET /api/matches/user-matches
+ * Get all matches for current user's lost items
+ * Requires: authentication
+ */
+router.get('/user-matches', verifyToken, async (req, res) => {
   try {
-    // Get matches where user is the owner of lost items
-    const lostItemsSnapshot = await db.collection('LostItems')
-      .where('user_id', '==', req.user.uid)
+    const { userId } = req.user;
+
+    // Get user's lost items
+    const lostSnapshot = await req.db
+      .collection('LostItems')
+      .where('userId', '==', userId)
+      .orderBy('createdAt', 'desc')
       .get();
 
-    const lostItemIds = lostItemsSnapshot.docs.map(doc => doc.id);
+    const lostItems = lostSnapshot.docs.map(doc => doc.data());
 
-    if (lostItemIds.length === 0) {
-      return res.json({ matches: [] });
+    if (lostItems.length === 0) {
+      return res.json({
+        message: 'No lost items to get matches for',
+        userMatches: []
+      });
     }
 
-    // Get matches for these lost items
-    const matchesPromises = lostItemIds.map(lostItemId =>
-      db.collection('Matches')
-        .where('lost_item_id', '==', lostItemId)
-        .orderBy('match_score', 'desc')
-        .get()
-    );
+    // Get all found items
+    const foundSnapshot = await req.db.collection('FoundItems').get();
+    const foundItems = foundSnapshot.docs.map(doc => doc.data());
 
-    const matchesResults = await Promise.all(matchesPromises);
-    const allMatches = [];
-
-    matchesResults.forEach(snapshot => {
-      snapshot.forEach(doc => {
-        allMatches.push({ id: doc.id, ...doc.data() });
+    // Calculate matches for each lost item
+    const userMatches = [];
+    for (const lostItem of lostItems) {
+      const matches = findMatches(lostItem, foundItems);
+      userMatches.push({
+        lostItem,
+        matches: matches.map(m => ({
+          foundItem: m.foundItem,
+          score: m.score,
+          confidence: m.confidence,
+          explanation: m.explanation
+        }))
       });
-    });
+    }
 
-    // Sort by match score and creation time
-    allMatches.sort((a, b) => {
-      if (b.match_score !== a.match_score) {
-        return b.match_score - a.match_score;
-      }
-      return b.created_at - a.created_at;
+    res.json({
+      userId,
+      totalItems: lostItems.length,
+      itemsWithMatches: userMatches.filter(m => m.matches.length > 0).length,
+      userMatches
     });
-
-    res.json({ matches: allMatches });
   } catch (error) {
-    console.error('Get my matches error:', error);
-    res.status(500).json({ error: 'Failed to fetch matches' });
+    console.error('Get user matches error:', error);
+    res.status(500).json({
+      error: 'Matching Failed',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/matches/request-claim
+ * Request claim for a found item matching lost item
+ * Requires: authentication
+ */
+router.post('/request-claim', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.user;
+    const { lostItemId, foundItemId } = req.body;
+
+    if (!lostItemId || !foundItemId) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'Lost item ID and found item ID are required'
+      });
+    }
+
+    // Get lost item
+    const lostDoc = await req.db.collection('LostItems').doc(lostItemId).get();
+    if (!lostDoc.exists) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Lost item not found'
+      });
+    }
+
+    const lostItem = lostDoc.data();
+
+    // Verify ownership of lost item
+    if (lostItem.userId !== userId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You can only request claims for your own lost items'
+      });
+    }
+
+    // Get found item
+    const foundDoc = await req.db.collection('FoundItems').doc(foundItemId).get();
+    if (!foundDoc.exists) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Found item not found'
+      });
+    }
+
+    // Create claim request
+    const claimId = `claim_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const claimData = {
+      id: claimId,
+      lostItemId,
+      foundItemId,
+      claimerUserId: userId,
+      finderUserId: lostItem.userId,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Save claim request
+    await req.db.collection('claims').doc(claimId).set(claimData);
+
+    // Update found item with claim request
+    const foundItem = foundDoc.data();
+    const claimRequests = foundItem.claimRequests || [];
+    claimRequests.push(claimId);
+    await req.db.collection('FoundItems').doc(foundItemId).update({
+      claimRequests
+    });
+
+    res.status(201).json({
+      message: 'Claim request submitted successfully',
+      claim: claimData
+    });
+  } catch (error) {
+    console.error('Request claim error:', error);
+    res.status(500).json({
+      error: 'Claim Request Failed',
+      message: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/matches/claims/:claimId
+ * Get claim details
+ */
+router.get('/claims/:claimId', async (req, res) => {
+  try {
+    const { claimId } = req.params;
+
+    const claimDoc = await req.db.collection('claims').doc(claimId).get();
+    if (!claimDoc.exists) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Claim not found'
+      });
+    }
+
+    const claim = claimDoc.data();
+
+    // Get related items
+    const lostItem = await (await req.db.collection('LostItems').doc(claim.lostItemId).get()).data();
+    const foundItem = await (await req.db.collection('FoundItems').doc(claim.foundItemId).get()).data();
+
+    res.json({
+      claim,
+      lostItem,
+      foundItem
+    });
+  } catch (error) {
+    console.error('Get claim error:', error);
+    res.status(500).json({
+      error: 'Fetch Failed',
+      message: error.message
+    });
   }
 });
 

@@ -23,6 +23,24 @@ export function HandoverScreen({ onNavigate }: HandoverScreenProps) {
     // Generate OTP
     setOtp(Math.floor(100000 + Math.random() * 900000).toString());
   }, []);
+  const [verificationResult, setVerificationResult] = useState<any>(null);
+  const [otpExpiry, setOtpExpiry] = useState<Date | null>(null);
+  const [qrCodeData, setQRCodeData] = useState<string | null>(null);
+  const [showOTPInput, setShowOTPInput] = useState(false);
+  const [enteredOTP, setEnteredOTP] = useState("");
+  const [handoverId, setHandoverId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Load verification result from localStorage
+    try {
+      const stored = localStorage.getItem('verificationResult');
+      if (stored) {
+        setVerificationResult(JSON.parse(stored));
+      }
+    } catch (err) {
+      console.error('Failed to load verification result:', err);
+    }
+  }, []);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -41,6 +59,69 @@ export function HandoverScreen({ onNavigate }: HandoverScreenProps) {
     }
     return () => clearInterval(interval);
   }, [isHolding, holdProgress]);
+
+  const generateOTP = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const result = await handoversAPI.generateOTP(
+        verificationResult?.claimId || '',
+        verificationResult?.location || ''
+      );
+      
+      setOtp(result.otp);
+      setHandoverId(result.handoverId);
+      setOtpExpiry(new Date(Date.now() + 10 * 60 * 1000)); // 10 minutes
+      
+      // Generate QR code data
+      const qrData = JSON.stringify({
+        otp: result.otp,
+        handoverId: result.handoverId,
+        location: result.location,
+        timestamp: new Date().toISOString()
+      });
+      setQRCodeData(qrData);
+      setShowQR(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate OTP');
+      console.error('OTP generation error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const confirmHandover = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      if (enteredOTP !== otp) {
+        setError('Invalid OTP. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+      
+      const result = await handoversAPI.confirmHandover(
+        handoverId || '',
+        enteredOTP
+      );
+      
+      setHandoverData(result);
+      setConfirmed(true);
+      
+      // Store handover confirmation
+      localStorage.setItem('handoverConfirmation', JSON.stringify(result));
+      
+      // Navigate to timeline after 2 seconds
+      setTimeout(() => onNavigate('timeline'), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to confirm handover');
+      console.error('Handover confirmation error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   if (error) {
     return (
@@ -151,51 +232,85 @@ export function HandoverScreen({ onNavigate }: HandoverScreenProps) {
               </div>
 
               <div className="flex items-center justify-center mb-6">
-                <motion.button
-                  onClick={() => setShowQR(!showQR)}
-                  className="text-sm text-[#06b6d4] hover:underline"
-                  whileHover={{ scale: 1.05 }}
-                >
-                  {showQR ? "Show OTP" : "Show QR Code"}
-                </motion.button>
+                <div className="flex items-center gap-4">
+                  <motion.button
+                    onClick={() => setShowQR(!showQR)}
+                    className="text-sm text-[#06b6d4] hover:underline"
+                    whileHover={{ scale: 1.05 }}
+                  >
+                    {showQR ? "Show OTP" : "Show QR Code"}
+                  </motion.button>
+                  <MagneticButton
+                    variant="secondary"
+                    onClick={generateOTP}
+                  >
+                    {isLoading ? 'Generating…' : 'Generate Code'}
+                  </MagneticButton>
+                </div>
               </div>
 
               {!showQR ? (
-                <motion.div
-                  key="otp"
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="text-center mb-8"
-                >
-                  <div className="text-sm text-muted-foreground mb-4">
-                    Share this code with the person
-                  </div>
+                <>
                   <motion.div
-                    className="text-6xl font-bold tracking-wider mb-4 bg-gradient-to-r 
-                      from-[#0066ff] to-[#06b6d4] bg-clip-text text-transparent"
-                    animate={{ scale: [1, 1.05, 1] }}
-                    transition={{ duration: 2, repeat: Infinity }}
+                    key="otp"
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="text-center mb-8"
                   >
-                    {otp}
-                  </motion.div>
-                  <div className="text-xs text-muted-foreground">
-                    Code expires in 15:00 minutes
-                  </div>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="qr"
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="flex items-center justify-center mb-8"
-                >
-                  <div className="w-64 h-64 bg-white rounded-[12px] p-4 flex items-center justify-center">
-                    <div className="w-full h-full bg-gradient-to-br from-[#0066ff] to-[#06b6d4] 
-                      rounded-[8px] flex items-center justify-center">
-                      <QrCode className="w-32 h-32 text-white" />
+                    <div className="text-sm text-muted-foreground mb-4">
+                      Share this code with the person
                     </div>
+                    <motion.div
+                      className="text-6xl font-bold tracking-wider mb-4 bg-gradient-to-r
+                        from-[#0066ff] to-[#06b6d4] bg-clip-text text-transparent"
+                      animate={{ scale: [1, 1.05, 1] }}
+                      transition={{ duration: 2, repeat: Infinity }}
+                    >
+                      {otp}
+                    </motion.div>
+                    <div className="text-xs text-muted-foreground">
+                      Code expires in 15:00 minutes
+                    </div>
+                  </motion.div>
+                  <div className="flex items-center justify-center gap-3">
+                    <button
+                      onClick={() => navigator.clipboard?.writeText(otp)}
+                      className="text-sm text-[#06b6d4] hover:underline"
+                    >
+                      Copy OTP
+                    </button>
+                    <button
+                      onClick={() => setShowOTPInput(true)}
+                      className="text-sm text-[#06b6d4] hover:underline"
+                    >
+                      Enter OTP
+                    </button>
                   </div>
-                </motion.div>
+                </>
+              ) : (
+                <>
+                  <motion.div
+                    key="qr"
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex items-center justify-center mb-8"
+                  >
+                    <div className="w-64 h-64 bg-white rounded-[12px] p-4 flex items-center justify-center">
+                      <div className="w-full h-full bg-gradient-to-br from-[#0066ff] to-[#06b6d4]
+                        rounded-[8px] flex items-center justify-center">
+                        <QrCode className="w-32 h-32 text-white" />
+                      </div>
+                    </div>
+                  </motion.div>
+                  <div className="flex items-center justify-center gap-3">
+                    <button
+                      onClick={() => navigator.clipboard?.writeText(qrCodeData || '')}
+                      className="text-sm text-[#06b6d4] hover:underline"
+                    >
+                      Copy QR Data
+                    </button>
+                  </div>
+                </>
               )}
 
               <div className="space-y-4">
@@ -214,6 +329,40 @@ export function HandoverScreen({ onNavigate }: HandoverScreenProps) {
             </GlassCard>
           </motion.div>
         </div>
+
+        {/* OTP Input and Confirm */}
+        {showOTPInput && !confirmed && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-4xl mx-auto mt-6"
+          >
+            <GlassCard className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <Clock className="w-5 h-5 text-muted-foreground" />
+                <h4 className="font-semibold">Enter Verification Code</h4>
+              </div>
+
+              <div className="flex gap-3 items-center">
+                <input
+                  value={enteredOTP}
+                  onChange={(e) => setEnteredOTP(e.target.value)}
+                  placeholder="Enter 6-digit code"
+                  className="px-4 py-3 rounded-[10px] bg-white/50 dark:bg-white/5 border border-white/20 flex-1"
+                />
+                <MagneticButton variant="primary" onClick={confirmHandover} disabled={isLoading}>
+                  {isLoading ? 'Confirming…' : 'Confirm OTP'}
+                </MagneticButton>
+                <MagneticButton variant="secondary" onClick={() => setShowOTPInput(false)}>
+                  Cancel
+                </MagneticButton>
+              </div>
+              {otpExpiry && (
+                <p className="text-xs text-muted-foreground mt-3">Expires at: {otpExpiry.toLocaleTimeString()}</p>
+              )}
+            </GlassCard>
+          </motion.div>
+        )}
 
         {/* Confirm Button */}
         <motion.div

@@ -1,253 +1,427 @@
-// API Service for Lost&Found AI+ Frontend
-// Handles all communication with the backend
+/**
+ * API Service
+ * Client wrapper for all backend endpoints
+ * Handles requests with JWT authentication
+ */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
-// Helper function to get auth token from localStorage
-const getAuthToken = () => localStorage.getItem('authToken');
+interface ApiResponse<T = any> {
+  data?: T;
+  error?: string;
+  message?: string;
+}
 
-// Helper function to make authenticated requests
-const makeAuthenticatedRequest = async (url: string, options: RequestInit = {}) => {
-  const token = getAuthToken();
-  if (!token) {
-    throw new Error('No authentication token found');
-  }
+interface ApiRequestOptions extends RequestInit {
+  skipAuth?: boolean;
+}
 
-  const headers = {
+/**
+ * Get JWT token from localStorage
+ */
+const getAuthToken = (): string | null => {
+  return localStorage.getItem('authToken');
+};
+
+/**
+ * Generic API request handler
+ */
+const apiRequest = async <T = any>(
+  endpoint: string,
+  options: ApiRequestOptions = {}
+): Promise<T> => {
+  const { skipAuth = false, ...fetchOptions } = options;
+
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
-    ...options.headers,
   };
 
-  const response = await fetch(`${API_BASE_URL}${url}`, {
-    ...options,
-    headers,
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Network error' }));
-    throw new Error(error.message || `HTTP ${response.status}`);
+  // Add auth token if available and not skipped
+  const token = getAuthToken();
+  if (token && !skipAuth) {
+    console.log('📤 Sending token with request:', token.substring(0, 20) + '...');
+    headers['Authorization'] = `Bearer ${token}`;
   }
 
-  return response.json();
+  // Merge fetch options headers
+  if (fetchOptions.headers) {
+    const additionalHeaders = fetchOptions.headers as Record<string, string>;
+    Object.assign(headers, additionalHeaders);
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...fetchOptions,
+      headers,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || data.error || `API error: ${response.status}`);
+    }
+
+    return data as T;
+  } catch (error) {
+    console.error(`API request failed: ${endpoint}`, error);
+    throw error;
+  }
 };
 
-// Auth API
+/**
+ * ===========================
+ * AUTHENTICATION ENDPOINTS
+ * ===========================
+ */
+
 export const authAPI = {
-  login: async (email: string, password: string) => {
-    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+  /**
+   * Register a new user
+   */
+  register: async (email: string, password: string, name: string, phone?: string) => {
+    return apiRequest('/auth/register', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      skipAuth: true,
+      body: JSON.stringify({ email, password, name, phone }),
+    });
+  },
+
+  /**
+   * Login user
+   */
+  login: async (email: string, password: string) => {
+    return apiRequest('/auth/login', {
+      method: 'POST',
+      skipAuth: true,
       body: JSON.stringify({ email, password }),
     });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Login failed' }));
-      throw new Error(error.message);
-    }
-
-    const data = await response.json();
-    localStorage.setItem('authToken', data.token);
-    localStorage.setItem('user', JSON.stringify(data.user));
-    return data;
   },
 
-  register: async (userData: {
-    name: string;
-    email: string;
-    phone: string;
-    password: string;
-  }) => {
-    const response = await fetch(`${API_BASE_URL}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(userData),
+  /**
+   * Get current user profile
+   */
+  getProfile: async () => {
+    return apiRequest('/auth/profile', {
+      method: 'GET',
     });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Registration failed' }));
-      throw new Error(error.message);
-    }
-
-    const data = await response.json();
-    localStorage.setItem('authToken', data.token);
-    localStorage.setItem('user', JSON.stringify(data.user));
-    return data;
   },
 
-  logout: () => {
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('user');
+  /**
+   * Update user profile
+   */
+  updateProfile: async (updates: { name?: string; phone?: string; photo?: string }) => {
+    return apiRequest('/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
   },
 
-  getCurrentUser: () => {
-    const user = localStorage.getItem('user');
-    return user ? JSON.parse(user) : null;
+  /**
+   * Logout user
+   */
+  logout: async () => {
+    return apiRequest('/auth/logout', {
+      method: 'POST',
+    });
   },
-
-  isAuthenticated: () => !!getAuthToken(),
 };
 
-// Items API
+/**
+ * ===========================
+ * ITEMS ENDPOINTS
+ * ===========================
+ */
+
 export const itemsAPI = {
+  /**
+   * Report a lost item
+   */
   reportLost: async (itemData: {
-    name: string;
+    itemName: string;
     category: string;
     description: string;
     location: string;
-    time: string;
-    verification_answers: string[];
-    image?: File;
+    lostDate: string;
+    lostTime: string;
+    color?: string;
+    brand?: string;
+    estimatedValue?: number;
+    imageUrl?: string;
   }) => {
-    const formData = new FormData();
-    formData.append('name', itemData.name);
-    formData.append('category', itemData.category);
-    formData.append('description', itemData.description);
-    formData.append('location', itemData.location);
-    formData.append('time', itemData.time);
-    formData.append('verification_answers', JSON.stringify(itemData.verification_answers));
-
-    if (itemData.image) {
-      formData.append('image', itemData.image);
-    }
-
-    return makeAuthenticatedRequest('/items/report-lost', {
+    return apiRequest('/items/report-lost', {
       method: 'POST',
-      body: formData,
+      body: JSON.stringify(itemData),
     });
   },
 
+  /**
+   * Report a found item
+   */
   reportFound: async (itemData: {
-    name: string;
+    itemName: string;
     category: string;
     description: string;
-    location: string;
-    time: string;
-    image?: File;
+    foundLocation: string;
+    foundDate: string;
+    foundTime: string;
+    currentLocation?: string;
+    color?: string;
+    brand?: string;
+    imageUrl?: string;
   }) => {
-    const formData = new FormData();
-    formData.append('name', itemData.name);
-    formData.append('category', itemData.category);
-    formData.append('description', itemData.description);
-    formData.append('location', itemData.location);
-    formData.append('time', itemData.time);
-
-    if (itemData.image) {
-      formData.append('image', itemData.image);
-    }
-
-    return makeAuthenticatedRequest('/items/report-found', {
+    return apiRequest('/items/report-found', {
       method: 'POST',
-      body: formData,
+      body: JSON.stringify(itemData),
     });
   },
 
-  getMyLostItems: () => makeAuthenticatedRequest('/items/my-lost-items'),
+  /**
+   * Get user's items
+   */
+  getUserItems: async (type?: 'lost' | 'found') => {
+    const url = type ? `/items/my-items?type=${type}` : '/items/my-items';
+    return apiRequest(url, { method: 'GET' });
+  },
 
-  getMyFoundItems: () => makeAuthenticatedRequest('/items/my-found-items'),
+  /**
+   * Search items
+   */
+  searchItems: async (query?: string, category?: string, status?: string) => {
+    const params = new URLSearchParams();
+    if (query) params.append('q', query);
+    if (category) params.append('category', category);
+    if (status) params.append('status', status);
 
-  generateVerificationQuestions: async (category: string) => {
-    // For now, return hardcoded questions based on category
-    // In production, this would call the backend AI service
-    const questions = {
-      phone: [
-        { question: "What color is the phone case?", type: "text", options: ["Black", "White", "Blue", "Red", "Other"] },
-        { question: "Does it have any distinctive scratches or marks?", type: "boolean", options: ["Yes", "No"] },
-        { question: "What brand is the phone?", type: "text", options: ["iPhone", "Samsung", "Google", "OnePlus", "Other"] }
-      ],
-      wallet: [
-        { question: "How many card slots does it have?", type: "number", options: ["2-4", "5-8", "9-12", "More than 12"] },
-        { question: "What color is the wallet?", type: "text", options: ["Black", "Brown", "Blue", "Red", "Other"] },
-        { question: "Does it have a coin pocket?", type: "boolean", options: ["Yes", "No"] }
-      ],
-      keys: [
-        { question: "How many keys are on the keyring?", type: "number", options: ["1-3", "4-6", "7-10", "More than 10"] },
-        { question: "What type of keyring does it have?", type: "text", options: ["Metal", "Plastic", "Leather", "Other"] },
-        { question: "Are there any distinctive keychains?", type: "boolean", options: ["Yes", "No"] }
-      ],
-      bag: [
-        { question: "What color is the zipper?", type: "text", options: ["Black", "Silver", "Gold", "Colored"] },
-        { question: "How many compartments does it have?", type: "number", options: ["1", "2", "3", "4+"] },
-        { question: "What brand or logo is on the bag?", type: "text", options: ["Nike", "Adidas", "No brand", "Other"] }
-      ],
-      default: [
-        { question: "What is the primary color of the item?", type: "text", options: ["Black", "White", "Blue", "Red", "Other"] },
-        { question: "Are there any distinctive marks or labels?", type: "boolean", options: ["Yes", "No"] },
-        { question: "What is the approximate size?", type: "text", options: ["Small", "Medium", "Large", "Extra Large"] }
-      ]
-    };
+    const url = `/items/search${params.toString() ? '?' + params.toString() : ''}`;
+    return apiRequest(url, { method: 'GET' });
+  },
 
-    return { questions: questions[category.toLowerCase()] || questions.default };
+  /**
+   * Get single item
+   */
+  getItem: async (itemId: string) => {
+    return apiRequest(`/items/${itemId}`, { method: 'GET' });
+  },
+
+  /**
+   * Update item
+   */
+  updateItem: async (itemId: string, updates: any) => {
+    return apiRequest(`/items/${itemId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  /**
+   * Delete item
+   */
+  deleteItem: async (itemId: string) => {
+    return apiRequest(`/items/${itemId}`, { method: 'DELETE' });
+  },
+
+  /**
+   * Get items by category
+   */
+  getByCategory: async (category: string) => {
+    return apiRequest(`/items/category/${category}`, { method: 'GET' });
   },
 };
 
-// Matches API
+/**
+ * ===========================
+ * MATCHING ENDPOINTS
+ * ===========================
+ */
+
 export const matchesAPI = {
-  getMatches: (lostItemId: string) =>
-    makeAuthenticatedRequest(`/matches/match-items?lostItemId=${lostItemId}`),
+  /**
+   * Get all matches in system
+   */
+  getAllMatches: async () => {
+    return apiRequest('/matches/find', { method: 'GET', skipAuth: true });
+  },
 
-  getItemMatches: (lostItemId: string) =>
-    makeAuthenticatedRequest(`/matches/item-matches/${lostItemId}`),
+  /**
+   * Get matches for specific lost item
+   */
+  getItemMatches: async (itemId: string) => {
+    return apiRequest(`/matches/item/${itemId}`, { method: 'GET', skipAuth: true });
+  },
 
-  getMyMatches: () => makeAuthenticatedRequest('/matches/my-matches'),
+  /**
+   * Get user's lost items with matches
+   */
+  getUserMatches: async () => {
+    return apiRequest('/matches/user-matches', { method: 'GET' });
+  },
+
+  /**
+   * Request a claim for matched items
+   */
+  requestClaim: async (lostItemId: string, foundItemId: string) => {
+    return apiRequest('/matches/request-claim', {
+      method: 'POST',
+      body: JSON.stringify({ lostItemId, foundItemId }),
+    });
+  },
+
+  /**
+   * Get claim details
+   */
+  getClaim: async (claimId: string) => {
+    return apiRequest(`/matches/claims/${claimId}`, { method: 'GET' });
+  },
 };
 
-// Handovers API
+/**
+ * ===========================
+ * HANDOVER ENDPOINTS
+ * ===========================
+ */
+
 export const handoversAPI = {
-  verifyOwner: (verificationData: {
-    matchId: string;
-    answers: string[];
-  }) => makeAuthenticatedRequest('/handovers/verify-owner', {
-    method: 'POST',
-    body: JSON.stringify(verificationData),
-  }),
+  /**
+   * Verify ownership with verification answers
+   */
+  verifyOwner: async (claimId: string, answers: string[]) => {
+    return apiRequest('/handovers/verify-owner', {
+      method: 'POST',
+      body: JSON.stringify({ claimId, answers }),
+    });
+  },
 
-  generateOTP: (handoverId: string) => makeAuthenticatedRequest('/handovers/generate-otp', {
-    method: 'POST',
-    body: JSON.stringify({ handoverId }),
-  }),
+  /**
+   * Generate OTP and QR code
+   */
+  generateOTP: async (claimId: string, location: string) => {
+    return apiRequest('/handovers/generate-otp', {
+      method: 'POST',
+      body: JSON.stringify({ claimId, location }),
+    });
+  },
 
-  confirmHandover: (handoverData: {
-    handoverId: string;
-    otp: string;
-  }) => makeAuthenticatedRequest('/handovers/confirm-handover', {
-    method: 'POST',
-    body: JSON.stringify(handoverData),
-  }),
-
-  getHandoverDetails: (handoverId: string) =>
-    makeAuthenticatedRequest(`/handovers/${handoverId}`),
-};
-
-// Admin API
-export const adminAPI = {
-  getDashboardData: () => makeAuthenticatedRequest('/admin/dashboard-data'),
-
-  approveHandover: (handoverId: string, otp?: string) =>
-    makeAuthenticatedRequest('/admin/approve-handover', {
+  /**
+   * Confirm handover with OTP
+   */
+  confirmHandover: async (handoverId: string, otp: string) => {
+    return apiRequest('/handovers/confirm-handover', {
       method: 'POST',
       body: JSON.stringify({ handoverId, otp }),
-    }),
+    });
+  },
 
-  rejectHandover: (handoverId: string, reason?: string) =>
-    makeAuthenticatedRequest('/admin/reject-handover', {
+  /**
+   * Get handover details
+   */
+  getHandover: async (handoverId: string) => {
+    return apiRequest(`/handovers/${handoverId}`, { method: 'GET' });
+  },
+};
+
+/**
+ * ===========================
+ * ADMIN ENDPOINTS
+ * ===========================
+ */
+
+export const adminAPI = {
+  /**
+   * Get admin dashboard data
+   */
+  getDashboardData: async () => {
+    return apiRequest('/admin/dashboard-data', { method: 'GET' });
+  },
+
+  /**
+   * Get all users
+   */
+  getUsers: async (filter?: { role?: string; status?: string }) => {
+    const params = new URLSearchParams();
+    if (filter?.role) params.append('role', filter.role);
+    if (filter?.status) params.append('status', filter.status);
+
+    const url = `/admin/users${params.toString() ? '?' + params.toString() : ''}`;
+    return apiRequest(url, { method: 'GET' });
+  },
+
+  /**
+   * Get all claims
+   */
+  getClaims: async (status?: string) => {
+    const url = status ? `/admin/claims?status=${status}` : '/admin/claims';
+    return apiRequest(url, { method: 'GET' });
+  },
+
+  /**
+   * Approve a claim
+   */
+  approveClaim: async (claimId: string, notes?: string) => {
+    return apiRequest(`/admin/claim/${claimId}/approve`, {
       method: 'POST',
-      body: JSON.stringify({ handoverId, reason }),
-    }),
+      body: JSON.stringify({ notes }),
+    });
+  },
 
-  getHandovers: () => makeAuthenticatedRequest('/admin/handovers'),
+  /**
+   * Reject a claim
+   */
+  rejectClaim: async (claimId: string, reason: string) => {
+    return apiRequest(`/admin/claim/${claimId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  /**
+   * Get all handovers
+   */
+  getHandovers: async () => {
+    return apiRequest('/admin/handovers', { method: 'GET' });
+  },
+
+  /**
+   * Disable user account
+   */
+  disableUser: async (userId: string, reason?: string) => {
+    return apiRequest(`/admin/user/${userId}/disable`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  /**
+   * Enable user account
+   */
+  enableUser: async (userId: string) => {
+    return apiRequest(`/admin/user/${userId}/enable`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Get location heatmap data
+   */
+  getHeatmapData: async () => {
+    return apiRequest('/admin/stats/heatmap', { method: 'GET' });
+  },
+
+  /**
+   * Get audit logs
+   */
+  getAuditLogs: async (limit?: number) => {
+    const url = limit ? `/admin/audit-log?limit=${limit}` : '/admin/audit-log';
+    return apiRequest(url, { method: 'GET' });
+  },
 };
 
-// Health check
-export const healthAPI = {
-  check: () => fetch(`${API_BASE_URL}/health`).then(res => res.json()),
-};
-
+/**
+ * Export API client
+ */
 export default {
   auth: authAPI,
   items: itemsAPI,
   matches: matchesAPI,
   handovers: handoversAPI,
   admin: adminAPI,
-  health: healthAPI,
 };

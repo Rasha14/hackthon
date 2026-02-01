@@ -35,61 +35,8 @@ export function MatchResultsScreen({ onNavigate }: MatchResultsScreenProps) {
       try {
         setIsLoading(true);
         // Simulated matches data - in production, fetch from API
-        const demoMatches: Match[] = [
-          {
-            id: "match1",
-            match_score: 92,
-            score_breakdown: {
-              textSimilarity: 95,
-              locationMatch: 98,
-              timeRelevance: 85,
-              imageSimilarity: 78
-            },
-            found_item: {
-              name: "Blue iPhone 14 Pro",
-              category: "phone",
-              description: "Blue iPhone with screen protector",
-              location: "Campus Library",
-              image_url: "https://via.placeholder.com/300"
-            }
-          },
-          {
-            id: "match2",
-            match_score: 78,
-            score_breakdown: {
-              textSimilarity: 82,
-              locationMatch: 75,
-              timeRelevance: 72,
-              imageSimilarity: 65
-            },
-            found_item: {
-              name: "Phone Case",
-              category: "phone",
-              description: "Blue phone with case",
-              location: "Campus Cafeteria",
-              image_url: "https://via.placeholder.com/300"
-            }
-          },
-          {
-            id: "match3",
-            match_score: 65,
-            score_breakdown: {
-              textSimilarity: 70,
-              locationMatch: 62,
-              timeRelevance: 58,
-              imageSimilarity: 52
-            },
-            found_item: {
-              name: "Electronics",
-              category: "phone",
-              description: "Blue electronic device",
-              location: "Campus Entrance",
-              image_url: "https://via.placeholder.com/300"
-            }
-          }
-        ];
-        
-        setMatches(demoMatches);
+        const response = await matchesAPI.getUserMatches();
+        setMatches(response.matches || response || []);
       } catch (err) {
         setError("Failed to load matches");
         console.error(err);
@@ -101,11 +48,25 @@ export function MatchResultsScreen({ onNavigate }: MatchResultsScreenProps) {
     loadMatches();
   }, []);
 
-  const handleSelectMatch = (match: Match) => {
-    setSelectedMatch(match);
-    // Store the match data for the verification screen
-    localStorage.setItem('selectedMatch', JSON.stringify(match));
-    onNavigate('verification');
+  const handleSelectMatch = async (match: Match) => {
+    try {
+      setError(null);
+      // Request a claim for this match
+      const claimResult = await matchesAPI.requestClaim(match.id, match.found_item.id);
+
+      // Store match and claim data for verification screen
+      const matchWithClaim = { ...match, claimId: claimResult.id || claimResult.claimId };
+      localStorage.setItem('selectedMatch', JSON.stringify(matchWithClaim));
+      localStorage.setItem('claimData', JSON.stringify(claimResult));
+
+      setSelectedMatch(matchWithClaim);
+
+      // Navigate to verification
+      onNavigate('verification');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to request claim');
+      console.error('Claim request error:', err);
+    }
   };
 
   // Animated score ring component
@@ -318,10 +279,8 @@ export function MatchResultsScreen({ onNavigate }: MatchResultsScreenProps) {
 
                       {/* Action Button */}
                       <MagneticButton 
-                        variant="primary" 
-                        size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        variant="primary"
+                        onClick={() => {
                           handleSelectMatch(match);
                         }}
                       >
@@ -364,3 +323,4 @@ export function MatchResultsScreen({ onNavigate }: MatchResultsScreenProps) {
     </div>
   );
 }
+

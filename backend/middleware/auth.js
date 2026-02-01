@@ -1,81 +1,84 @@
 const jwt = require('jsonwebtoken');
-const admin = require('firebase-admin');
 
-const db = admin.firestore();
+/**
+ * Verify JWT token middleware
+ * Extracts and validates JWT from Authorization header
+ * Requires token to be present and valid
+ */
+const verifyToken = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      error: 'Unauthorized',
+      message: 'No token provided'
+    });
+  }
 
-// Verify JWT token
-const verifyToken = async (req, res, next) => {
+  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+  const secret = process.env.JWT_SECRET || 'your-secret-key';
+
   try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Authorization token is required' });
-    }
-
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-
-    // Verify JWT token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // Get user from database to verify it still exists
-    const userDoc = await db.collection('Users').doc(decoded.uid).get();
-
-    if (!userDoc.exists) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-
-    // Attach user info to request object
-    req.user = {
-      uid: decoded.uid,
-      email: decoded.email,
-      role: decoded.role || 'user'
-    };
-
+    const decoded = jwt.verify(token, secret);
+    req.user = decoded;
     next();
   } catch (error) {
-    console.error('Token verification error:', error);
-
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Token has expired' });
-    }
-
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ error: 'Invalid token' });
-    }
-
-    res.status(500).json({ error: 'Authentication failed' });
+    console.error('Token verification failed:', error.message, 'using secret:', secret === 'your-secret-key' ? 'DEFAULT' : 'FROM_ENV');
+    return res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Invalid or expired token',
+      details: error.message
+    });
   }
 };
 
-// Require admin role
-const requireAdmin = async (req, res, next) => {
-  try {
-    // verifyToken should have already run and set req.user
-    if (!req.user) {
-      return res.status(401).json({ error: 'User not authenticated' });
-    }
-
-    // Check if user has admin role
-    const userDoc = await db.collection('Users').doc(req.user.uid).get();
-
-    if (!userDoc.exists) {
-      return res.status(401).json({ error: 'User not found' });
-    }
-
-    const userData = userDoc.data();
-
-    if (userData.role !== 'admin') {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
-    next();
-  } catch (error) {
-    console.error('Admin verification error:', error);
-    res.status(500).json({ error: 'Authorization check failed' });
+/**
+ * Require admin role
+ * Used after verifyToken to ensure user has admin privileges
+ */
+const requireAdmin = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({
+      error: 'Unauthorized',
+      message: 'No user found'
+    });
   }
+
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({
+      error: 'Forbidden',
+      message: 'Admin access required',
+      userRole: req.user.role
+    });
+  }
+
+  next();
+};
+
+/**
+ * Optional token verification - doesn't fail if no token
+ */
+const optionalVerifyToken = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      req.user = decoded;
+    } catch (error) {
+      // Silently fail - user is optional
+      req.user = null;
+    }
+  } else {
+    req.user = null;
+  }
+
+  next();
 };
 
 module.exports = {
   verifyToken,
-  requireAdmin
+  requireAdmin,
+  optionalVerifyToken
 };

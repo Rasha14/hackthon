@@ -2,8 +2,10 @@ import { motion } from "motion/react";
 import { GlassCard } from "./glass-card";
 import { RecoveryTimeline } from "./recovery-timeline";
 import { MagneticButton } from "./magnetic-button";
-import { ArrowLeft, Download, Share2, Trophy } from "lucide-react";
+import { ArrowLeft, Download, Share2, Trophy, Loader2, AlertCircle } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useAuth } from "../../contexts/AuthContext";
+import { itemsAPI, handoversAPI } from "../../services/api";
 import Confetti from "react-confetti";
 
 interface TimelineScreenProps {
@@ -13,6 +15,11 @@ interface TimelineScreenProps {
 export function TimelineScreen({ onNavigate }: TimelineScreenProps) {
   const [showConfetti, setShowConfetti] = useState(false);
   const [windowSize, setWindowSize] = useState({ width: 0, height: 0 });
+  const { user } = useAuth();
+  const [items, setItems] = useState<any[]>([]);
+  const [handovers, setHandovers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setWindowSize({
@@ -35,38 +42,105 @@ export function TimelineScreen({ onNavigate }: TimelineScreenProps) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const timelineSteps = [
-    {
-      label: "Item Reported",
-      date: "Jan 28, 2026 - 2:30 PM",
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6 bg-gradient-to-br from-[#0a0e1a] to-[#1e293b]">
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="text-center">
+          <Loader2 className="w-16 h-16 text-[#06b6d4] mx-auto mb-4 animate-spin" />
+          <h2 className="text-2xl font-bold text-white mb-2">Loading timeline...</h2>
+          <p className="text-gray-300">Fetching your items and handover history.</p>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6 bg-gradient-to-br from-[#0a0e1a] to-[#1e293b]">
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="text-center max-w-md">
+          <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold mb-2 text-white">Failed to load timeline</h2>
+          <p className="text-gray-300 mb-6">{error}</p>
+          <div className="flex gap-4 justify-center">
+            <MagneticButton variant="secondary" onClick={() => window.location.reload()}>Retry</MagneticButton>
+            <MagneticButton variant="primary" onClick={() => onNavigate('home')}>Back to Home</MagneticButton>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  const timelineSteps = [] as Array<{ label: string; date: string; completed: boolean; active: boolean }>;
+
+  useEffect(() => {
+    const loadTimeline = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const [itemsRes, handoversRes] = await Promise.all([
+          itemsAPI.getUserItems(),
+          handoversAPI.getHandovers(),
+        ]);
+
+        setItems(itemsRes.items || itemsRes || []);
+        setHandovers(handoversRes.handovers || handoversRes || []);
+      } catch (err) {
+        console.error('Failed to load timeline data:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load timeline');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (user) loadTimeline();
+  }, [user]);
+
+  // Build timeline steps from loaded data
+  const primaryItem = items[0];
+  const primaryHandover = handovers.find(h => h.itemId === primaryItem?.id) || handovers[0];
+
+  if (primaryItem) {
+    timelineSteps.push({
+      label: 'Item Reported',
+      date: new Date(primaryItem.createdAt || primaryItem.reportedAt || Date.now()).toLocaleString(),
       completed: true,
       active: false,
-    },
-    {
-      label: "AI Match Found",
-      date: "Jan 28, 2026 - 2:45 PM",
-      completed: true,
-      active: false,
-    },
-    {
-      label: "Ownership Verified",
-      date: "Jan 28, 2026 - 3:15 PM",
-      completed: true,
-      active: false,
-    },
-    {
-      label: "Handover Completed",
-      date: "Jan 31, 2026 - 11:20 AM",
-      completed: true,
-      active: false,
-    },
-    {
-      label: "Item Returned Successfully",
-      date: "Jan 31, 2026 - 11:20 AM",
-      completed: false,
-      active: true,
-    },
-  ];
+    });
+
+    const matchDate = primaryItem.matchFoundAt || primaryItem.matchedAt;
+    timelineSteps.push({
+      label: 'AI Match Found',
+      date: matchDate ? new Date(matchDate).toLocaleString() : 'Pending',
+      completed: !!matchDate,
+      active: !matchDate,
+    });
+  }
+
+  if (primaryHandover) {
+    const verifiedAt = primaryHandover.verifiedAt || primaryHandover.verificationAt;
+    timelineSteps.push({
+      label: 'Ownership Verified',
+      date: verifiedAt ? new Date(verifiedAt).toLocaleString() : 'Pending',
+      completed: !!verifiedAt,
+      active: !verifiedAt,
+    });
+
+    const confirmedAt = primaryHandover.confirmedAt || primaryHandover.completedAt;
+    timelineSteps.push({
+      label: 'Handover Completed',
+      date: confirmedAt ? new Date(confirmedAt).toLocaleString() : 'Pending',
+      completed: !!confirmedAt,
+      active: !confirmedAt,
+    });
+
+    timelineSteps.push({
+      label: 'Item Returned Successfully',
+      date: confirmedAt ? new Date(confirmedAt).toLocaleString() : 'Pending',
+      completed: !!confirmedAt,
+      active: !confirmedAt,
+    });
+  }
 
   return (
     <div className="min-h-screen py-12 px-6 relative overflow-hidden">

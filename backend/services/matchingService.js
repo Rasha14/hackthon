@@ -1,243 +1,324 @@
-// AI Matching Service for Lost&Found AI+
-// Computes match scores using weighted criteria with advanced text similarity
+/**
+ * Matching Service
+ * Provides AI-based matching algorithms for lost and found items
+ */
 
-// Levenshtein distance for string similarity
-const levenshteinDistance = (str1, str2) => {
-  const track = Array(str2.length + 1).fill(null).map(() =>
-    Array(str1.length + 1).fill(null));
+/**
+ * Calculate Levenshtein distance (character-level similarity)
+ * Returns similarity score between 0 and 1
+ */
+const calculateLevenshteinDistance = (str1, str2) => {
+  const len1 = str1.length;
+  const len2 = str2.length;
+  const matrix = Array(len2 + 1).fill(null).map(() => Array(len1 + 1).fill(0));
 
-  for (let i = 0; i <= str1.length; i += 1) {
-    track[0][i] = i;
-  }
-  for (let j = 0; j <= str2.length; j += 1) {
-    track[j][0] = j;
-  }
+  for (let i = 0; i <= len1; i++) matrix[0][i] = i;
+  for (let j = 0; j <= len2; j++) matrix[j][0] = j;
 
-  for (let j = 1; j <= str2.length; j += 1) {
-    for (let i = 1; i <= str1.length; i += 1) {
+  for (let j = 1; j <= len2; j++) {
+    for (let i = 1; i <= len1; i++) {
       const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
-      track[j][i] = Math.min(
-        track[j][i - 1] + 1,
-        track[j - 1][i] + 1,
-        track[j - 1][i - 1] + indicator
+      matrix[j][i] = Math.min(
+        matrix[j][i - 1] + 1,
+        matrix[j - 1][i] + 1,
+        matrix[j - 1][i - 1] + indicator
       );
     }
   }
 
-  return track[str2.length][str1.length];
+  const maxLen = Math.max(len1, len2);
+  return maxLen === 0 ? 1 : 1 - (matrix[len2][len1] / maxLen);
 };
 
-// Calculate string similarity as percentage
-const stringSimilarity = (str1, str2) => {
-  const maxLength = Math.max(str1.length, str2.length);
-  if (maxLength === 0) return 100;
-  const distance = levenshteinDistance(str1, str2);
-  return ((maxLength - distance) / maxLength) * 100;
-};
+/**
+ * Calculate word-level similarity
+ * Checks if words in str1 are present in str2
+ */
+const calculateWordSimilarity = (str1, str2) => {
+  const words1 = str1.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  const words2 = str2.toLowerCase().split(/\s+/).filter(w => w.length > 2);
 
-// Helper function to calculate text similarity (improved implementation)
-const calculateTextSimilarity = (text1, text2) => {
-  if (!text1 || !text2) return 0;
+  if (words1.length === 0 || words2.length === 0) return 0;
 
-  const t1 = text1.toLowerCase();
-  const t2 = text2.toLowerCase();
-
-  // Exact match
-  if (t1 === t2) return 100;
-
-  // Word-level similarity
-  const words1 = t1.split(/\s+/).filter(w => w.length > 0);
-  const words2 = t2.split(/\s+/).filter(w => w.length > 0);
-
-  if (words1.length === 0 || words2.length === 0) {
-    return stringSimilarity(t1, t2);
-  }
-
-  // Calculate word-based similarity
-  let wordMatches = 0;
-  let totalDistance = 0;
-
+  let matches = 0;
   for (const word1 of words1) {
     for (const word2 of words2) {
-      const similarity = stringSimilarity(word1, word2);
-      if (similarity > 75) {
-        wordMatches += similarity / 100;
+      const similarity = calculateLevenshteinDistance(word1, word2);
+      if (similarity > 0.8) {
+        matches++;
         break;
       }
     }
   }
 
-  // Average word similarity
-  const wordSimilarity = (wordMatches / Math.max(words1.length, words2.length)) * 100;
-
-  // Character-level similarity
-  const charSimilarity = stringSimilarity(t1, t2);
-
-  // Combined score (weighted)
-  return (wordSimilarity * 0.6 + charSimilarity * 0.4);
+  return matches / words1.length;
 };
 
-// Helper function to calculate location similarity
-const calculateLocationSimilarity = (location1, location2) => {
-  if (!location1 || !location2) return 0;
+/**
+ * Calculate text similarity between descriptions
+ * Combines word-level and character-level matching
+ */
+const calculateTextSimilarity = (text1, text2) => {
+  if (!text1 || !text2) return 0;
 
-  // Simple string matching for location
-  const loc1 = location1.toLowerCase();
-  const loc2 = location2.toLowerCase();
+  const charSimilarity = calculateLevenshteinDistance(text1.toLowerCase(), text2.toLowerCase());
+  const wordSimilarity = calculateWordSimilarity(text1, text2);
 
-  if (loc1 === loc2) return 100;
-
-  // Check if one location contains the other
-  if (loc1.includes(loc2) || loc2.includes(loc1)) return 75;
-
-  // Check for common words
-  return calculateTextSimilarity(location1, location2);
+  // Weighted average: 40% character similarity, 60% word similarity
+  return charSimilarity * 0.4 + wordSimilarity * 0.6;
 };
 
-// Helper function to calculate time relevance
+/**
+ * Calculate location similarity
+ * Based on string matching (exact or partial match)
+ */
+const calculateLocationSimilarity = (loc1, loc2) => {
+  if (!loc1 || !loc2) return 0;
+
+  const l1 = loc1.toLowerCase();
+  const l2 = loc2.toLowerCase();
+
+  // Exact match
+  if (l1 === l2) return 1.0;
+
+  // Partial match (one contains the other)
+  if (l1.includes(l2) || l2.includes(l1)) return 0.85;
+
+  // Word-level matching
+  const words1 = l1.split(/[\s,/]+/).filter(w => w.length > 2);
+  const words2 = l2.split(/[\s,/]+/).filter(w => w.length > 2);
+
+  if (words1.length === 0 || words2.length === 0) return 0;
+
+  let matches = 0;
+  for (const word1 of words1) {
+    if (words2.some(word2 => word1 === word2 || calculateLevenshteinDistance(word1, word2) > 0.8)) {
+      matches++;
+    }
+  }
+
+  return Math.min(matches / Math.max(words1.length, words2.length), 0.8);
+};
+
+/**
+ * Calculate time relevance
+ * Items lost/found closer in time are more likely to match
+ */
 const calculateTimeRelevance = (time1, time2) => {
   if (!time1 || !time2) return 0;
 
   const date1 = new Date(time1);
   const date2 = new Date(time2);
-  const diffHours = Math.abs(date1 - date2) / (1000 * 60 * 60);
 
-  if (diffHours <= 24) return 100; // Within 24 hours
-  if (diffHours <= 72) return 75;  // Within 3 days
-  if (diffHours <= 168) return 50; // Within 1 week
-  if (diffHours <= 720) return 25; // Within 1 month
+  if (isNaN(date1) || isNaN(date2)) return 0;
 
-  return 0; // More than a month
+  const daysDiff = Math.abs((date2 - date1) / (1000 * 60 * 60 * 24));
+
+  if (daysDiff === 0) return 1.0; // Same day
+  if (daysDiff <= 1) return 0.95; // Within 1 day
+  if (daysDiff <= 3) return 0.85; // Within 3 days
+  if (daysDiff <= 7) return 0.70; // Within a week
+  if (daysDiff <= 14) return 0.50; // Within 2 weeks
+  if (daysDiff <= 30) return 0.30; // Within a month
+
+  return 0.1; // More than a month
 };
 
-// Helper function to calculate basic image similarity
-// This is a simplified implementation - in production, use proper image processing libraries
-const calculateImageSimilarity = async (imageUrl1, imageUrl2) => {
-  if (!imageUrl1 || !imageUrl2) return 0;
-
-  try {
-    // For now, implement basic similarity based on filename patterns and metadata
-    // In a real implementation, this would use image processing libraries
-
-    // Extract filename from URLs
-    const filename1 = imageUrl1.split('/').pop()?.toLowerCase() || '';
-    const filename2 = imageUrl2.split('/').pop()?.toLowerCase() || '';
-
-    // Check for common keywords that might indicate similar images
-    const imageKeywords = ['phone', 'wallet', 'keys', 'bag', 'watch', 'jewelry', 'laptop', 'tablet'];
-    const commonKeywords1 = imageKeywords.filter(keyword => filename1.includes(keyword));
-    const commonKeywords2 = imageKeywords.filter(keyword => filename2.includes(keyword));
-
-    // If both images contain the same keywords, give higher similarity
-    const commonKeywords = commonKeywords1.filter(keyword => commonKeywords2.includes(keyword));
-    if (commonKeywords.length > 0) {
-      return Math.min(80 + (commonKeywords.length * 10), 95); // 80-95% similarity
-    }
-
-    // Check for color indicators in filename
-    const colors = ['black', 'white', 'blue', 'red', 'green', 'yellow', 'brown', 'gray', 'grey', 'silver', 'gold'];
-    const color1 = colors.find(color => filename1.includes(color));
-    const color2 = colors.find(color => filename2.includes(color));
-
-    if (color1 && color2 && color1 === color2) {
-      return 60; // Same color mentioned = moderate similarity
-    }
-
-    // Check for numbers (model numbers, etc.)
-    const numbers1 = filename1.match(/\d+/g);
-    const numbers2 = filename2.match(/\d+/g);
-
-    if (numbers1 && numbers2) {
-      const commonNumbers = numbers1.filter(num => numbers2.includes(num));
-      if (commonNumbers.length > 0) {
-        return 70; // Same numbers = good similarity
-      }
-    }
-
-    // Default low similarity for different images
-    return 20;
-
-  } catch (error) {
-    console.error('Error calculating image similarity:', error);
-    return 0;
-  }
+/**
+ * Calculate category similarity
+ * Exact category matches score high
+ */
+const calculateCategorySimilarity = (cat1, cat2) => {
+  if (!cat1 || !cat2) return 0;
+  return cat1.toLowerCase() === cat2.toLowerCase() ? 1.0 : 0;
 };
 
-// Main function to calculate match score
-const calculateMatchScore = async (lostItem, foundItem) => {
-  let totalScore = 0;
-  const breakdown = {
-    textSimilarity: 0,
-    locationMatch: 0,
-    timeRelevance: 0,
-    imageSimilarity: 0
+/**
+ * Calculate overall match score between two items
+ * Returns score 0-100
+ */
+const calculateMatchScore = (lostItem, foundItem) => {
+  if (!lostItem || !foundItem) return 0;
+
+  const scores = {
+    // Text similarity: description match (35%)
+    text: calculateTextSimilarity(
+      `${lostItem.itemName} ${lostItem.description}`,
+      `${foundItem.itemName} ${foundItem.description}`
+    ) * 35,
+
+    // Category similarity: exact match (25%)
+    category: calculateCategorySimilarity(lostItem.category, foundItem.category) * 25,
+
+    // Location similarity: where lost/found (20%)
+    location: calculateLocationSimilarity(
+      lostItem.location || lostItem.lostDate,
+      foundItem.foundLocation || foundItem.foundDate
+    ) * 20,
+
+    // Time relevance: when lost/found (20%)
+    time: calculateTimeRelevance(lostItem.lostDate, foundItem.foundDate) * 20
   };
 
-  // Text similarity (description) - 50%
-  const textScore = calculateTextSimilarity(lostItem.description, foundItem.description);
-  breakdown.textSimilarity = textScore;
-  totalScore += textScore * 0.5;
-
-  // Location match - 30%
-  const locationScore = calculateLocationSimilarity(lostItem.location, foundItem.location);
-  breakdown.locationMatch = locationScore;
-  totalScore += locationScore * 0.3;
-
-  // Time relevance (<24h) - 20%
-  const timeScore = calculateTimeRelevance(lostItem.time, foundItem.time);
-  breakdown.timeRelevance = timeScore;
-  totalScore += timeScore * 0.2;
-
-  // Image similarity - 10% (basic implementation)
-  const imageScore = await calculateImageSimilarity(lostItem.image_url, foundItem.image_url);
-  breakdown.imageSimilarity = imageScore;
-  totalScore += imageScore * 0.1;
-
-  return {
-    total: Math.round(totalScore),
-    breakdown
-  };
+  const totalScore = Object.values(scores).reduce((a, b) => a + b, 0);
+  return Math.min(100, Math.round(totalScore));
 };
 
-// Function to generate AI questions for ownership verification
-const generateVerificationQuestions = (itemCategory) => {
-  const questionTemplates = {
+/**
+ * Get confidence level based on match score
+ */
+const getConfidenceLevel = (score) => {
+  if (score >= 80) return { level: 'High', color: 'green', emoji: '🔥' };
+  if (score >= 50) return { level: 'Medium', color: 'orange', emoji: '⚡' };
+  return { level: 'Low', color: 'red', emoji: '❄️' };
+};
+
+/**
+ * Generate AI verification questions based on item category
+ */
+const generateVerificationQuestions = (category) => {
+  const questionSets = {
+    phone: [
+      'What color is your phone?',
+      'What brand/model is it?',
+      'Describe any visible scratches or damage',
+      'What is your lock screen wallpaper?'
+    ],
+    laptop: [
+      'What is the screen size of your laptop?',
+      'What brand is it?',
+      'Describe any distinguishing marks or stickers',
+      'What operating system does it run?'
+    ],
     bag: [
-      { question: "What color is the zipper?", type: "text" },
-      { question: "How many compartments does it have?", type: "number" },
-      { question: "What brand or logo is on the bag?", type: "text" }
+      'What color and material is the bag?',
+      'Describe any items that were inside',
+      'What brand is it?',
+      'Describe any damage or wear'
     ],
     wallet: [
-      { question: "How many card slots does it have?", type: "number" },
-      { question: "What color is the wallet?", type: "text" },
-      { question: "Does it have a coin pocket?", type: "boolean" }
+      'What color is your wallet?',
+      'Describe its material and design',
+      'Name any cards that were inside',
+      'What brand is it?'
     ],
-    phone: [
-      { question: "What color is the phone case?", type: "text" },
-      { question: "Does it have any distinctive scratches or marks?", type: "text" },
-      { question: "What brand is the phone?", type: "text" }
+    watch: [
+      'What color is the watch?',
+      'What brand and model?',
+      'Describe the watch face shape',
+      'What type of band does it have?'
     ],
     keys: [
-      { question: "How many keys are on the keyring?", type: "number" },
-      { question: "What type of keyring does it have?", type: "text" },
-      { question: "Are there any distinctive keychains?", type: "text" }
+      'Describe your key ring',
+      'How many keys are on it?',
+      'Are there any distinctive markers or tags?',
+      'Describe the keychain'
+    ],
+    glasses: [
+      'What color are the frames?',
+      'What brand are they?',
+      'Describe any distinctive features',
+      'Are they prescription or sunglasses?'
     ],
     jewelry: [
-      { question: "What type of metal is it made of?", type: "text" },
-      { question: "Does it have any engravings?", type: "text" },
-      { question: "What is the main gemstone or design?", type: "text" }
+      'Describe the type of jewelry',
+      'What metal is it made of?',
+      'Are there any gemstones or engravings?',
+      'Describe any distinctive features'
     ],
-    default: [
-      { question: "What is the primary color of the item?", type: "text" },
-      { question: "Are there any distinctive marks or labels?", type: "text" },
-      { question: "What is the approximate size of the item?", type: "text" }
+    document: [
+      'What type of document is it?',
+      'What is your full name on the document?',
+      'What is the document ID number?',
+      'What is the expiry or issue date?'
+    ],
+    other: [
+      'Describe the item in detail',
+      'What is the brand or manufacturer?',
+      'Describe any unique features or damage',
+      'What condition was it in?'
     ]
   };
 
-  return questionTemplates[itemCategory.toLowerCase()] || questionTemplates.default;
+  const normalized = category.toLowerCase().trim();
+  return questionSets[normalized] || questionSets.other;
+};
+
+/**
+ * Find matches for a lost item
+ * Returns top 3 matches with scores and confidence levels
+ */
+const findMatches = (lostItem, foundItems) => {
+  if (!Array.isArray(foundItems) || foundItems.length === 0) {
+    return [];
+  }
+
+  const matches = foundItems
+    .filter(foundItem => foundItem.id !== lostItem.id)
+    .map(foundItem => {
+      const score = calculateMatchScore(lostItem, foundItem);
+      const confidence = getConfidenceLevel(score);
+
+      return {
+        foundItem,
+        score,
+        confidence,
+        explanation: generateMatchExplanation(lostItem, foundItem, score)
+      };
+    })
+    .filter(match => match.score >= 30) // Only return matches with score >= 30
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3); // Return top 3
+
+  return matches;
+};
+
+/**
+ * Generate explanation for why items match
+ */
+const generateMatchExplanation = (lostItem, foundItem, score) => {
+  const reasons = [];
+
+  // Text similarity
+  const textSim = calculateTextSimilarity(
+    `${lostItem.itemName} ${lostItem.description}`,
+    `${foundItem.itemName} ${foundItem.description}`
+  );
+  if (textSim > 0.7) reasons.push('Description matches well');
+
+  // Category
+  if (calculateCategorySimilarity(lostItem.category, foundItem.category) > 0.5) {
+    reasons.push('Same category');
+  }
+
+  // Location
+  const locSim = calculateLocationSimilarity(
+    lostItem.location || lostItem.lostDate,
+    foundItem.foundLocation || foundItem.foundDate
+  );
+  if (locSim > 0.7) reasons.push('Same or nearby location');
+
+  // Time
+  const timeSim = calculateTimeRelevance(lostItem.lostDate, foundItem.foundDate);
+  if (timeSim > 0.7) reasons.push('Found shortly after loss');
+
+  if (reasons.length === 0) {
+    reasons.push('Potential match based on overall characteristics');
+  }
+
+  return reasons.join(', ');
 };
 
 module.exports = {
   calculateMatchScore,
-  generateVerificationQuestions
+  calculateTextSimilarity,
+  calculateLocationSimilarity,
+  calculateTimeRelevance,
+  calculateCategorySimilarity,
+  getConfidenceLevel,
+  generateVerificationQuestions,
+  findMatches,
+  generateMatchExplanation,
+  calculateLevenshteinDistance,
+  calculateWordSimilarity
 };
