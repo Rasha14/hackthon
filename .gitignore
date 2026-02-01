@@ -10,3 +10,5 @@ dist/
 .idea/
 backend/.env
 backend/firebase-service-account.json
+
+backend/mock-db.json

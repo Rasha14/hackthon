@@ -1,12 +1,14 @@
 import { motion } from "motion/react";
+import { useState, useEffect } from "react";
+import {
+  Shield, Target, TrendingUp, Sparkles,
+  Bell, AlertCircle, LogOut
+} from "lucide-react";
+import api from "../../services/api";
+import { useAuth } from "../../contexts/AuthContext";
 import { AIParticles } from "./ai-particles";
 import { MagneticButton } from "./magnetic-button";
 import { StatCard } from "./stat-card";
-import { Shield, Target, TrendingUp, Sparkles } from "lucide-react";
-import { useState, useEffect } from "react";
-import { matchesAPI } from "../../services/api";
-import { AlertCircle, LogOut } from "lucide-react";
-import { useAuth } from "../../contexts/AuthContext";
 
 interface HomeScreenProps {
   onNavigate: (screen: string) => void;
@@ -21,12 +23,27 @@ interface Match {
   description?: string;
 }
 
+interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  date: string;
+  actionLink?: string;
+}
+
 export function HomeScreen({ onNavigate }: HomeScreenProps) {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const [matches, setMatches] = useState<Match[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDemoMode, setIsDemoMode] = useState(false);
+
+  // Notification State
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const enableDemoMode = () => {
     setIsDemoMode(true);
@@ -35,6 +52,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
       loadMatches();
+      loadNotifications();
     }
   }, [isAuthenticated, isLoading]);
 
@@ -42,102 +60,189 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
     try {
       setError(null);
       setMatchesLoading(true);
-      const response = await matchesAPI.getUserMatches();
+      const response = await api.matches.getUserMatches();
       setMatches(response.matches || []);
     } catch (err) {
       console.error('Failed to load matches:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load matches');
+      // setError(err instanceof Error ? err.message : 'Failed to load matches');
     } finally {
       setMatchesLoading(false);
     }
   };
 
+  const loadNotifications = async () => {
+    try {
+      const response = await api.notifications.getNotifications();
+      if (response.notifications) {
+        setNotifications(response.notifications);
+        setUnreadCount(response.notifications.filter((n: Notification) => !n.read).length);
+      }
+    } catch (err) {
+      console.error('Failed to load notifications:', err);
+    }
+  };
+
+  const handleNotificationClick = async (id: string, actionLink?: string) => {
+    try {
+      await api.notifications.markAsRead(id);
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+      if (actionLink) {
+        // Simple client-side routing based on link
+        if (actionLink === '/matches') onNavigate('match-results');
+      }
+    } catch (err) {
+      console.error('Failed to mark read:', err);
+    }
+  };
+
   return (
-    <div className="min-h-screen relative overflow-hidden">
+    <div className="min-h-screen relative overflow-hidden" onClick={() => setShowNotifications(false)}>
       <AIParticles />
-      
+
       {/* Hero Section */}
       <div className="relative z-10 container mx-auto px-6 py-20">
-              {/* User Header & Error Banner */}
-              <div className="flex justify-between items-center mb-8">
-                {isAuthenticated ? (
-                  <motion.div
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="flex items-center gap-4"
-                  >
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-r from-[#0066ff] to-[#06b6d4] 
+        {/* User Header & Error Banner */}
+        <div className="flex justify-between items-center mb-8 relative">
+          {isAuthenticated ? (
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="flex items-center gap-4"
+            >
+              <div className="w-12 h-12 rounded-full bg-gradient-to-r from-[#0066ff] to-[#06b6d4] 
                       flex items-center justify-center text-white font-bold">
-                      {user?.name?.[0]?.toUpperCase() || 'U'}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-lg">{user?.name || 'User'}</p>
-                      <p className="text-sm text-muted-foreground">
-                        Trust Score: <span className="font-bold text-[#14b8a6]">{user?.trustScore || 50}</span>
-                      </p>
-                    </div>
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                  >
-                    <p className="text-lg font-semibold">Welcome to ItemFinder</p>
-                  </motion.div>
-                )}
-                <motion.div
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="flex items-center gap-3"
-                >
-                  {!isAuthenticated && (
-                    <>
-                      <motion.button
-                        onClick={() => onNavigate('auth')}
-                        className="px-6 py-2 rounded-lg bg-white/10 border border-white/20 
-                          hover:bg-white/20 transition-all text-sm font-medium"
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        Sign In
-                      </motion.button>
-                      <motion.button
-                        onClick={() => onNavigate('auth')}
-                        className="px-6 py-2 rounded-lg bg-gradient-to-r from-[#0066ff] to-[#06b6d4] 
-                          text-white hover:shadow-lg hover:shadow-[#0066ff]/30 transition-all text-sm font-medium"
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        Sign Up
-                      </motion.button>
-                    </>
-                  )}
-                  {isAuthenticated && (
-                    <motion.button
-                      onClick={logout}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg 
-                        hover:bg-red-500/10 text-red-500 transition-all duration-300"
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                    >
-                      <LogOut className="w-5 h-5" />
-                      Logout
-                    </motion.button>
-                  )}
-                </motion.div>
+                {user?.name?.[0]?.toUpperCase() || 'U'}
               </div>
+              <div>
+                <p className="font-semibold text-lg">{user?.name || 'User'}</p>
+                <p className="text-sm text-muted-foreground">
+                  Trust Score: <span className="font-bold text-[#14b8a6]">{user?.trustScore || 50}</span>
+                </p>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+            >
+              <p className="text-lg font-semibold">Welcome to ItemFinder</p>
+            </motion.div>
+          )}
 
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="mb-8 p-4 rounded-lg bg-red-500/10 border border-red-500/30 
-                    flex items-center gap-3 text-red-600 dark:text-red-400"
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="flex items-center gap-3"
+          >
+            {/* Notification Bell */}
+            {isAuthenticated && (
+              <div className="relative" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => setShowNotifications(!showNotifications)}
+                  className="p-2 rounded-full hover:bg-white/10 relative transition-colors"
                 >
-                  <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                  <p className="text-sm">{error}</p>
-                </motion.div>
-              )}
+                  <Bell className="w-6 h-6" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-0 right-0 w-4 h-4 bg-red-500 rounded-full text-[10px] 
+                            flex items-center justify-center text-white font-bold border border-white">
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Dropdown */}
+                {showNotifications && (
+                  <div className="absolute right-0 top-12 w-80 bg-white dark:bg-gray-900 border border-white/20 
+                          rounded-xl shadow-2xl backdrop-blur-xl z-50 overflow-hidden">
+                    <div className="p-3 border-b border-white/10 bg-white/5">
+                      <h3 className="font-semibold text-sm">Notifications</h3>
+                    </div>
+                    <div className="max-h-[300px] overflow-y-auto">
+                      {notifications.length === 0 ? (
+                        <div className="p-4 text-center text-muted-foreground text-sm">
+                          No new notifications
+                        </div>
+                      ) : (
+                        notifications.map(notification => (
+                          <div
+                            key={notification.id}
+                            onClick={() => handleNotificationClick(notification.id, notification.actionLink)}
+                            className={`p-3 border-b border-white/5 hover:bg-white/5 cursor-pointer transition-colors
+                                    ${!notification.read ? 'bg-[#0066ff]/5' : ''}`}
+                          >
+                            <div className="flex justify-between items-start mb-1">
+                              <span className={`text-xs w-fit px-2 py-0.5 rounded-full 
+                                      ${notification.type === 'match' ? 'bg-[#14b8a6]/20 text-[#14b8a6]' : 'bg-[#0066ff]/20 text-[#0066ff]'}`}>
+                                {notification.type.toUpperCase()}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground">
+                                {new Date(notification.date).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <h4 className={`text-sm mb-0.5 ${!notification.read ? 'font-bold' : 'font-medium'}`}>
+                              {notification.title}
+                            </h4>
+                            <p className="text-xs text-muted-foreground line-clamp-2">
+                              {notification.message}
+                            </p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!isAuthenticated && (
+              <>
+                <motion.button
+                  onClick={() => onNavigate('auth')}
+                  className="px-6 py-2 rounded-lg bg-white/10 border border-white/20 
+                          hover:bg-white/20 transition-all text-sm font-medium"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Sign In
+                </motion.button>
+                <motion.button
+                  onClick={() => onNavigate('auth')}
+                  className="px-6 py-2 rounded-lg bg-gradient-to-r from-[#0066ff] to-[#06b6d4] 
+                          text-white hover:shadow-lg hover:shadow-[#0066ff]/30 transition-all text-sm font-medium"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Sign Up
+                </motion.button>
+              </>
+            )}
+            {isAuthenticated && (
+              <motion.button
+                onClick={logout}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg 
+                        hover:bg-red-500/10 text-red-500 transition-all duration-300"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <LogOut className="w-5 h-5" />
+                Logout
+              </motion.button>
+            )}
+          </motion.div>
+        </div>
+
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8 p-4 rounded-lg bg-red-500/10 border border-red-500/30 
+                    flex items-center gap-3 text-red-600 dark:text-red-400"
+          >
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <p className="text-sm">{error}</p>
+          </motion.div>
+        )}
         <motion.div
           className="text-center max-w-4xl mx-auto mb-20"
           initial={{ opacity: 0, y: 30 }}
@@ -177,7 +282,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
           >
-            The world's most intelligent lost and found platform. 
+            The world's most intelligent lost and found platform.
             Powered by AI matching, blockchain verification, and secure handover protocols.
           </motion.p>
 
@@ -289,7 +394,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
                         <span className={`text-xs font-semibold px-2 py-1 rounded
                           ${match.confidence === 'high' ? 'bg-green-500/20 text-green-600' :
                             match.confidence === 'medium' ? 'bg-yellow-500/20 text-yellow-600' :
-                            'bg-red-500/20 text-red-600'}`}>
+                              'bg-red-500/20 text-red-600'}`}>
                           {match.confidence?.charAt(0).toUpperCase() + match.confidence?.slice(1) || 'Unknown'} Confidence
                         </span>
                         <span className="text-xs text-muted-foreground group-hover:text-[#06b6d4] transition">

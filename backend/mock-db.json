@@ -1,0 +1,21 @@
+{
+  "Users": [
+    {
+      "id": "user_admin",
+      "name": "System Admin",
+      "email": "admin@example.com",
+      "phone": "+0000000000",
+      "password": "$2b$10$ikAPH7li9DWyrkj9AYqXI.zQp81NhUvEOH0h9d1gVyqVLUTe81jLu",
+      "role": "admin",
+      "trustScore": 100,
+      "createdAt": "2023-01-01T00:00:00.000Z",
+      "isActive": true
+    }
+  ],
+  "LostItems": [],
+  "FoundItems": [],
+  "claims": [],
+  "Matches": [],
+  "handovers": [],
+  "audit_logs": []
+}

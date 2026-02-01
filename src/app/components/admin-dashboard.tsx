@@ -3,12 +3,12 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { GlassCard } from "./glass-card";
 import { MagneticButton } from "./magnetic-button";
-import { 
-  LayoutDashboard, 
-  Package, 
-  Users, 
-  Shield, 
-  TrendingUp, 
+import {
+  LayoutDashboard,
+  Package,
+  Users,
+  Shield,
+  TrendingUp,
   AlertTriangle,
   Search,
   Bell,
@@ -161,17 +161,35 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
     { name: "Documents", value: 150 },
   ];
 
-  // Sample location data for heatmap (simplified coordinates)
-  const locationData = [
-    { name: "Times Square", x: 40.7589, y: -73.9851, count: 45, intensity: 0.9 },
-    { name: "Central Park", x: 40.7829, y: -73.9654, count: 32, intensity: 0.7 },
-    { name: "Brooklyn Bridge", x: 40.7061, y: -73.9969, count: 28, intensity: 0.6 },
-    { name: "Grand Central", x: 40.7527, y: -73.9772, count: 25, intensity: 0.5 },
-    { name: "Union Square", x: 40.7359, y: -73.9911, count: 22, intensity: 0.4 },
-    { name: "Washington Square", x: 40.7308, y: -73.9973, count: 18, intensity: 0.3 },
-    { name: "Bryant Park", x: 40.7536, y: -73.9832, count: 15, intensity: 0.2 },
-    { name: "Rockefeller Center", x: 40.7587, y: -73.9787, count: 12, intensity: 0.1 },
-  ];
+  const [locationData, setLocationData] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchHeatmapData = async () => {
+      try {
+        if (isAuthenticated && isAdmin) {
+          const data = await adminAPI.getHeatmapData();
+          // Transform hashmap to array for visualization if needed, or just use as is
+          // The current mock returns { hotspots: { "Location": count }, ... }
+          // We need to map this to the format expected by the heatmap or chart
+          // For now, let's assume we map it to the scatter chart format: { x, y, z }
+          // Since we don't have real coords in the mock, we can just map top locations to random coords near NYC for demo
+
+          const hotspots = data.hotspots || {};
+          const mappedData = Object.entries(hotspots).map(([name, count], index) => ({
+            name,
+            x: 40.7128 + (Math.random() - 0.5) * 0.1,
+            y: -74.0060 + (Math.random() - 0.5) * 0.1,
+            count: Number(count),
+            intensity: Math.min(Number(count) / 10, 1)
+          }));
+          setLocationData(mappedData);
+        }
+      } catch (err) {
+        console.error('Failed to load heatmap stats:', err);
+      }
+    };
+    fetchHeatmapData();
+  }, [isAuthenticated, isAdmin]);
 
   const fraudAlerts = dashboardData ? dashboardData.fraud_alerts.map((alert: any, index: number) => ({
     id: index + 1,
@@ -210,7 +228,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
                 <p className="text-xs text-muted-foreground">Admin Portal</p>
               </div>
             </div>
-            <button 
+            <button
               onClick={() => setSidebarOpen(false)}
               className="md:hidden"
             >
@@ -224,8 +242,8 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-[12px] transition-colors
-                  ${activeTab === item.id 
-                    ? 'bg-gradient-to-r from-[#0066ff] to-[#06b6d4] text-white' 
+                  ${activeTab === item.id
+                    ? 'bg-gradient-to-r from-[#0066ff] to-[#06b6d4] text-white'
                     : 'hover:bg-white/50 dark:hover:bg-white/5'}`}
                 whileHover={{ x: 5 }}
               >
@@ -236,7 +254,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
           </nav>
 
           <div className="mt-8 pt-8 border-t border-white/20">
-            <button 
+            <button
               onClick={() => onNavigate('home')}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-[12px] 
                 hover:bg-destructive/10 text-destructive transition-colors"
@@ -256,7 +274,7 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
           <div className="px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <button 
+                <button
                   onClick={() => setSidebarOpen(!sidebarOpen)}
                   className="p-2 hover:bg-white/50 dark:hover:bg-white/5 rounded-[10px]"
                 >
@@ -328,142 +346,140 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
           {!isLoading && !error && (
             <>
               {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            {statsData.map((stat, index) => (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                {statsData.map((stat, index) => (
+                  <motion.div
+                    key={stat.label}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                  >
+                    <GlassCard hover className="p-6">
+                      <div className="flex items-start justify-between mb-4">
+                        <div>
+                          <div className="text-sm text-muted-foreground mb-1">{stat.label}</div>
+                          <div className="text-3xl font-bold">{stat.value}</div>
+                        </div>
+                        <div
+                          className="w-12 h-12 rounded-[10px] flex items-center justify-center"
+                          style={{ backgroundColor: `${stat.color}20` }}
+                        >
+                          <stat.icon className="w-6 h-6" style={{ color: stat.color }} />
+                        </div>
+                      </div>
+                      <div className={`text-sm font-semibold ${stat.change.startsWith('+') ? 'text-[#14b8a6]' : 'text-[#ef4444]'
+                        }`}>
+                        {stat.change} from last month
+                      </div>
+                    </GlassCard>
+                  </motion.div>
+                ))}
+              </div>
+
+              <div className="grid lg:grid-cols-3 gap-6 mb-8">
+                {/* Reports Chart */}
+                <motion.div
+                  className="lg:col-span-2"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                >
+                  <GlassCard className="p-6">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-xl font-semibold">Reports Overview</h3>
+                      <select className="px-4 py-2 rounded-[10px] bg-white/50 dark:bg-white/5 
+                    border border-white/20 text-sm">
+                        <option>Last 6 Months</option>
+                        <option>Last Year</option>
+                      </select>
+                    </div>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                        <XAxis dataKey="name" stroke="#94a3b8" />
+                        <YAxis stroke="#94a3b8" />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '12px'
+                          }}
+                        />
+                        <Line type="monotone" dataKey="reports" stroke="#0066ff" strokeWidth={3} />
+                        <Line type="monotone" dataKey="recovered" stroke="#14b8a6" strokeWidth={3} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </GlassCard>
+                </motion.div>
+
+                {/* Fraud Alerts */}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5 }}
+                >
+                  <GlassCard className="p-6">
+                    <div className="flex items-center gap-2 mb-6">
+                      <AlertTriangle className="w-6 h-6 text-[#ef4444]" />
+                      <h3 className="text-xl font-semibold">Fraud Alerts</h3>
+                    </div>
+                    <div className="space-y-4">
+                      {fraudAlerts.map((alert: any) => (
+                        <motion.div
+                          key={alert.id}
+                          className="p-4 rounded-[12px] bg-white/30 dark:bg-white/5 border border-white/10
+                        hover:border-[#ef4444]/50 cursor-pointer transition-colors"
+                          whileHover={{ x: 5 }}
+                        >
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="font-semibold text-sm">{alert.type}</div>
+                            <span className={`text-xs px-2 py-1 rounded-full ${alert.severity === 'high' ? 'bg-[#ef4444]/20 text-[#ef4444]' :
+                              alert.severity === 'medium' ? 'bg-[#f59e0b]/20 text-[#f59e0b]' :
+                                'bg-[#64748b]/20 text-[#64748b]'
+                              }`}>
+                              {alert.severity}
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted-foreground mb-1">{alert.user}</div>
+                          <div className="text-xs text-muted-foreground">{alert.time}</div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </GlassCard>
+                </motion.div>
+              </div>
+
+              {/* Category Distribution */}
               <motion.div
-                key={stat.label}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
+                transition={{ delay: 0.6 }}
               >
-                <GlassCard hover className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <div className="text-sm text-muted-foreground mb-1">{stat.label}</div>
-                      <div className="text-3xl font-bold">{stat.value}</div>
-                    </div>
-                    <div 
-                      className="w-12 h-12 rounded-[10px] flex items-center justify-center"
-                      style={{ backgroundColor: `${stat.color}20` }}
-                    >
-                      <stat.icon className="w-6 h-6" style={{ color: stat.color }} />
-                    </div>
-                  </div>
-                  <div className={`text-sm font-semibold ${
-                    stat.change.startsWith('+') ? 'text-[#14b8a6]' : 'text-[#ef4444]'
-                  }`}>
-                    {stat.change} from last month
-                  </div>
+                <GlassCard className="p-6">
+                  <h3 className="text-xl font-semibold mb-6">Items by Category</h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={categoryData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                      <XAxis dataKey="name" stroke="#94a3b8" />
+                      <YAxis stroke="#94a3b8" />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: '12px'
+                        }}
+                      />
+                      <Bar dataKey="value" fill="url(#colorGradient)" radius={[8, 8, 0, 0]} />
+                      <defs>
+                        <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#0066ff" />
+                          <stop offset="100%" stopColor="#06b6d4" />
+                        </linearGradient>
+                      </defs>
+                    </BarChart>
+                  </ResponsiveContainer>
                 </GlassCard>
               </motion.div>
-            ))}
-          </div>
-
-          <div className="grid lg:grid-cols-3 gap-6 mb-8">
-            {/* Reports Chart */}
-            <motion.div
-              className="lg:col-span-2"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-            >
-              <GlassCard className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h3 className="text-xl font-semibold">Reports Overview</h3>
-                  <select className="px-4 py-2 rounded-[10px] bg-white/50 dark:bg-white/5 
-                    border border-white/20 text-sm">
-                    <option>Last 6 Months</option>
-                    <option>Last Year</option>
-                  </select>
-                </div>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                    <XAxis dataKey="name" stroke="#94a3b8" />
-                    <YAxis stroke="#94a3b8" />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'rgba(15, 23, 42, 0.9)', 
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px'
-                      }} 
-                    />
-                    <Line type="monotone" dataKey="reports" stroke="#0066ff" strokeWidth={3} />
-                    <Line type="monotone" dataKey="recovered" stroke="#14b8a6" strokeWidth={3} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </GlassCard>
-            </motion.div>
-
-            {/* Fraud Alerts */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-            >
-              <GlassCard className="p-6">
-                <div className="flex items-center gap-2 mb-6">
-                  <AlertTriangle className="w-6 h-6 text-[#ef4444]" />
-                  <h3 className="text-xl font-semibold">Fraud Alerts</h3>
-                </div>
-                <div className="space-y-4">
-                  {fraudAlerts.map((alert: any) => (
-                    <motion.div
-                      key={alert.id}
-                      className="p-4 rounded-[12px] bg-white/30 dark:bg-white/5 border border-white/10
-                        hover:border-[#ef4444]/50 cursor-pointer transition-colors"
-                      whileHover={{ x: 5 }}
-                    >
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="font-semibold text-sm">{alert.type}</div>
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          alert.severity === 'high' ? 'bg-[#ef4444]/20 text-[#ef4444]' :
-                          alert.severity === 'medium' ? 'bg-[#f59e0b]/20 text-[#f59e0b]' :
-                          'bg-[#64748b]/20 text-[#64748b]'
-                        }`}>
-                          {alert.severity}
-                        </span>
-                      </div>
-                      <div className="text-xs text-muted-foreground mb-1">{alert.user}</div>
-                      <div className="text-xs text-muted-foreground">{alert.time}</div>
-                    </motion.div>
-                  ))}
-                </div>
-              </GlassCard>
-            </motion.div>
-          </div>
-
-          {/* Category Distribution */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.6 }}
-          >
-            <GlassCard className="p-6">
-              <h3 className="text-xl font-semibold mb-6">Items by Category</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={categoryData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                  <XAxis dataKey="name" stroke="#94a3b8" />
-                  <YAxis stroke="#94a3b8" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: '12px'
-                    }}
-                  />
-                  <Bar dataKey="value" fill="url(#colorGradient)" radius={[8, 8, 0, 0]} />
-                  <defs>
-                    <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#0066ff" />
-                      <stop offset="100%" stopColor="#06b6d4" />
-                    </linearGradient>
-                  </defs>
-                </BarChart>
-              </ResponsiveContainer>
-            </GlassCard>
-          </motion.div>
             </>
           )}
 

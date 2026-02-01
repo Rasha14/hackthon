@@ -12,7 +12,7 @@
 - [x] Update match-results-screen.tsx to use real API calls
 - [x] Integrate verification-screen.tsx with handoversAPI
 - [x] Update handover-screen.tsx for OTP/QR functionality
-- [ ] Connect admin-dashboard.tsx to adminAPI
+- [X] Connect admin-dashboard.tsx to adminAPI
 - [ ] Fix code issues (nested functions, missing imports)
 - [ ] Set up environment variables (.env file)
 - [ ] Test all API integrations end-to-end

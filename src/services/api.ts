@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 /**
  * API Service
  * Client wrapper for all backend endpoints
@@ -416,6 +418,28 @@ export const adminAPI = {
 };
 
 /**
+ * ===========================
+ * NOTIFICATIONS ENDPOINTS
+ * ===========================
+ */
+
+export const notificationsAPI = {
+  /**
+   * Get user notifications
+   */
+  getNotifications: async () => {
+    return apiRequest('/notifications', { method: 'GET' });
+  },
+
+  /**
+   * Mark notification as read
+   */
+  markAsRead: async (id: string) => {
+    return apiRequest(`/notifications/${id}/read`, { method: 'POST' });
+  },
+};
+
+/**
  * Export API client
  */
 export default {
@@ -424,4 +448,5 @@ export default {
   matches: matchesAPI,
   handovers: handoversAPI,
   admin: adminAPI,
+  notifications: notificationsAPI,
 };

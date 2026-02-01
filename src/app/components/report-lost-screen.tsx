@@ -34,11 +34,11 @@ export function ReportLostScreen({ onNavigate }: ReportLostScreenProps) {
     switch (step) {
       case 0:
         return formData.title.trim().length > 0 &&
-          formData.category.length > 0 &&
-          formData.description.trim().length > 10;
+               formData.category.length > 0 &&
+               formData.description.trim().length > 10;
       case 1:
         return formData.location.trim().length > 0 &&
-          formData.date.length > 0;
+               formData.date.length > 0;
       case 2:
         return true; // Photos are optional
       case 3:
@@ -137,31 +137,31 @@ export function ReportLostScreen({ onNavigate }: ReportLostScreenProps) {
           <StepIndicator steps={steps} currentStep={currentStep} />
 
           <GlassCard className="p-8">
-            {/* Error Display */}
-            {error && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/30 
+                        {/* Error Display */}
+                        {error && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="mb-6 p-4 rounded-lg bg-red-500/10 border border-red-500/30 
                               flex items-center gap-3 text-red-600 dark:text-red-400"
-              >
-                <AlertCircle className="w-5 h-5 flex-shrink-0" />
-                <p className="text-sm">{error}</p>
-              </motion.div>
-            )}
+                          >
+                            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                            <p className="text-sm">{error}</p>
+                          </motion.div>
+                        )}
 
-            {/* Success Display */}
-            {submitSuccess && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="text-center py-8"
-              >
-                <div className="text-6xl mb-4">✅</div>
-                <h2 className="text-2xl font-bold mb-2">Item Reported Successfully!</h2>
-                <p className="text-muted-foreground">Finding matches now...</p>
-              </motion.div>
-            )}
+                        {/* Success Display */}
+                        {submitSuccess && (
+                          <motion.div
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="text-center py-8"
+                          >
+                            <div className="text-6xl mb-4">✅</div>
+                            <h2 className="text-2xl font-bold mb-2">Item Reported Successfully!</h2>
+                            <p className="text-muted-foreground">Finding matches now...</p>
+                          </motion.div>
+                        )}
             {/* Step 0: Item Details */}
             {currentStep === 0 && (
               <motion.div
@@ -216,10 +216,11 @@ export function ReportLostScreen({ onNavigate }: ReportLostScreenProps) {
                       <motion.button
                         key={cat}
                         onClick={() => setFormData({ ...formData, category: cat })}
-                        className={`px-4 py-3 rounded-[12px] border transition-all ${formData.category === cat
+                        className={`px-4 py-3 rounded-[12px] border transition-all ${
+                          formData.category === cat
                             ? 'bg-gradient-to-r from-[#0066ff] to-[#06b6d4] text-white border-transparent'
                             : 'bg-white/50 dark:bg-white/5 border-white/20 hover:border-[#06b6d4]'
-                          }`}
+                        }`}
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                       >
@@ -293,7 +294,7 @@ export function ReportLostScreen({ onNavigate }: ReportLostScreenProps) {
                   images={formData.images}
                   onImageUpload={(images) => setFormData({ ...formData, images })}
                 />
-
+                
                 {formData.images.length > 0 && (
                   <AITooltip
                     text="Perfect! Multiple angles help our AI identify your item more accurately."
@@ -312,7 +313,7 @@ export function ReportLostScreen({ onNavigate }: ReportLostScreenProps) {
                 className="space-y-6"
               >
                 <h3 className="text-2xl font-semibold mb-6">Review Your Report</h3>
-
+                
                 <div className="space-y-4">
                   <div>
                     <div className="text-sm text-muted-foreground mb-1">Item Name</div>
@@ -342,7 +343,27 @@ export function ReportLostScreen({ onNavigate }: ReportLostScreenProps) {
               </motion.div>
             )}
 
-
+            {/* Navigation Buttons */}
+            <div className="flex gap-4 mt-8">
+              {currentStep > 0 && (
+                <motion.button
+                  onClick={() => setCurrentStep(currentStep - 1)}
+                  className="px-6 py-3 rounded-[12px] bg-white/50 dark:bg-white/5 
+                    border border-white/20 hover:border-[#06b6d4] transition-colors"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  Previous
+                </motion.button>
+              )}
+              <MagneticButton
+                variant="primary"
+                onClick={handleNext}
+                className="flex-1"
+              >
+                {currentStep === steps.length - 1 ? "Submit Report" : "Next Step"}
+              </MagneticButton>
+            </div>
             {!submitSuccess && (
               <div className="flex gap-4 mt-8">
                 {currentStep > 0 && (
@@ -364,8 +385,8 @@ export function ReportLostScreen({ onNavigate }: ReportLostScreenProps) {
                   disabled={isSubmitting}
                   className="flex-1"
                 >
-                  {isSubmitting ? 'Submitting...' :
-                    currentStep === steps.length - 1 ? 'Submit Report' : 'Next Step'}
+                  {isSubmitting ? 'Submitting...' : 
+                   currentStep === steps.length - 1 ? 'Submit Report' : 'Next Step'}
                 </MagneticButton>
               </div>
             )}
